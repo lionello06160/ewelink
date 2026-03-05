@@ -10,9 +10,25 @@ function uid() {
 // ── 讀取全部設定 ──────────────────────────────────
 export async function getConfigAction() {
     const config = readConfig();
+
+    // Auto-detect hosts from env. Do not expose tokens to frontend
+    const hosts: Array<{ id: string, name: string, ip: string }> = [];
+    if (process.env.IHOST_IP) {
+        hosts.push({ id: 'default', name: '預設主機 (.env)', ip: process.env.IHOST_IP });
+    }
+
+    // 支援 IHOST2_IP, IHOST3_IP ...
+    for (let i = 2; i <= 5; i++) {
+        const ip = process.env[`IHOST${i}_IP`];
+        if (ip) {
+            hosts.push({ id: `host${i}`, name: `主機 ${i} (.env)`, ip });
+        }
+    }
+
     return {
         cameras: config.cameras,
-        settings: config.settings ?? { columns: 2 }
+        settings: config.settings ?? { columns: 2 },
+        hosts
     };
 }
 
@@ -96,3 +112,4 @@ export async function updateSettingsAction(settings: { columns: number }) {
     config.settings = settings;
     writeConfig(config);
 }
+

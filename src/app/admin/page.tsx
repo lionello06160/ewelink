@@ -8,7 +8,7 @@ import {
     Camera, Cpu, LayoutGrid, Save, X, RefreshCw,
     Loader2, CheckCircle2, AlertCircle, Wifi, WifiOff,
     Copy, Check, ChevronDown, ChevronRight, Zap,
-    Scan, ChevronUp, Layout,
+    Scan, ChevronUp, Settings as LucideSettings,
 } from 'lucide-react';
 import { useConfigStore } from '@/store/config-store';
 import { fetchDevicesAction } from '@/app/actions/iot';
@@ -109,7 +109,7 @@ function Modal({
 // ─── Tab 1: 鏡頭管理 ─────────────────────────────────────────────────────────
 
 function CamerasTab() {
-    const { cameras, addCamera, updateCamera, deleteCamera, moveCamera, settings, updateSettings } = useConfigStore();
+    const { cameras, addCamera, updateCamera, deleteCamera, moveCamera } = useConfigStore();
     const [modal, setModal] = useState<null | 'add' | { id: string; name: string; streamPath: string }>(null);
     const [name, setName] = useState('');
     const [streamPath, setStreamPath] = useState('');
@@ -130,40 +130,6 @@ function CamerasTab() {
 
     return (
         <div className="space-y-6">
-            {/* 全域佈局設定 */}
-            <div className="p-4 rounded-xl bg-slate-900/40 border border-white/5 space-y-3">
-                <div className="flex items-center gap-2 text-slate-200 font-semibold text-sm">
-                    <Layout size={15} className="text-indigo-400" />
-                    全域佈局設定
-                </div>
-                <div className="flex items-center gap-4">
-                    <div className="flex-1">
-                        <p className="text-xs text-slate-500 mb-2">首頁攝影機顯示欄數</p>
-                        <div className="flex gap-2">
-                            {[1, 2, 3].map(n => (
-                                <button
-                                    key={n}
-                                    onClick={() => updateSettings({ ...settings, columns: n })}
-                                    className={clsx(
-                                        'flex-1 py-2 rounded-lg text-xs font-medium border transition-all',
-                                        settings.columns === n
-                                            ? 'bg-indigo-600/20 border-indigo-500 text-indigo-400'
-                                            : 'bg-slate-800/40 border-white/5 text-slate-500 hover:text-slate-300'
-                                    )}
-                                >
-                                    {n} 欄
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                    <div className="w-px h-10 bg-white/5" />
-                    <div className="flex-1">
-                        <p className="text-[10px] text-slate-600 italic">
-                            提示：設定會即時同步到首頁。大螢幕建議 2 或 3 欄，小螢幕建議 1 欄。
-                        </p>
-                    </div>
-                </div>
-            </div>
 
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -339,7 +305,7 @@ function FrameGrabber({ streamUrl, onCapture }: { streamUrl: string; onCapture: 
 }
 
 function ButtonEditor() {
-    const { cameras, updateCamera, addButton, updateButton, deleteButton, moveButton } = useConfigStore();
+    const { cameras, hosts, updateCamera, addButton, updateButton, deleteButton, moveButton } = useConfigStore();
     const [selectedCamId, setSelectedCamId] = useState(cameras[0]?.id ?? '');
     const [editingBtn, setEditingBtn] = useState<OverlayButton | null>(null);
     const [isAdding, setIsAdding] = useState(false);
@@ -366,7 +332,7 @@ function ButtonEditor() {
     const defaultForm = (): Omit<OverlayButton, 'id'> => ({
         label: '新按鈕', icon: '⚡', deviceId: '', action: 'toggle',
         outlet: undefined, x: 50, y: 50, variant: 'default',
-        scale: 1,
+        scale: 1, hostId: undefined,
     });
     const [form, setForm] = useState<Omit<OverlayButton, 'id'>>(defaultForm());
     // 暫存通道數，讓 UI 顯示通道選擇器
@@ -378,7 +344,8 @@ function ButtonEditor() {
         setForm({
             label: btn.label, icon: btn.icon ?? '⚡', deviceId: btn.deviceId,
             action: btn.action, outlet: btn.outlet, x: btn.x, y: btn.y,
-            variant: btn.variant ?? 'default', scale: btn.scale ?? 1
+            variant: btn.variant ?? 'default', scale: btn.scale ?? 1,
+            hostId: btn.hostId
         });
         setChannelCount(ch > 1 ? ch : 1);
         setEditingBtn(btn); setIsAdding(false);
@@ -416,7 +383,7 @@ function ButtonEditor() {
                     <div
                         ref={containerRef}
                         onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-                        className="relative w-full bg-slate-900 rounded-xl border border-white/10 overflow-hidden select-none bg-cover bg-center shadow-inner"
+                        className="relative w-full bg-slate-900 rounded-xl border border-white/10 overflow-hidden select-none bg-cover bg-center shadow-inner [container-type:inline-size]"
                         style={{
                             aspectRatio: '16/9',
                             backgroundImage: cam?.backgroundImage ? `url(${cam.backgroundImage})` : undefined
@@ -450,8 +417,8 @@ function ButtonEditor() {
                                         transform: `translate(-50%,-50%) scale(${previewScale})`,
                                         transformOrigin: 'center center',
                                         cursor: 'grab', zIndex: 10, touchAction: 'none',
-                                        padding: '1.5px', // 同步流動邊框預留空間
-                                        borderRadius: '12px',
+                                        padding: '0.15cqw',
+                                        borderRadius: '1.2cqw',
                                         transition: 'none',
                                     }}
                                     className={clsx(
@@ -463,10 +430,12 @@ function ButtonEditor() {
                                                     'bg-indigo-600 border-indigo-400 text-white'
                                     )}
                                 >
-                                    <div className="flex items-center gap-2 px-3 py-2 rounded-[11px]">
-                                        <GripVertical size={10} className="shrink-0 opacity-40" />
-                                        <span className="text-base">{previewIcon}</span>
-                                        <span className="text-sm truncate max-w-[100px]">{previewLabel}</span>
+                                    <div
+                                        className="flex items-center gap-[0.8cqw] px-[1.2cqw] py-[0.8cqw] rounded-[1.1cqw]"
+                                    >
+                                        <GripVertical className="shrink-0 opacity-40" style={{ width: '0.8cqw', height: '1cqw' }} />
+                                        <span style={{ fontSize: '1.6cqw' }}>{previewIcon}</span>
+                                        <span className="truncate max-w-[10cqw]" style={{ fontSize: '1.4cqw' }}>{previewLabel}</span>
                                     </div>
                                 </div>
                             );
@@ -479,8 +448,8 @@ function ButtonEditor() {
                                     transform: `translate(-50%,-50%) scale(${form.scale ?? 1})`,
                                     transformOrigin: 'center center',
                                     zIndex: 10,
-                                    padding: '1.5px',
-                                    borderRadius: '12px',
+                                    padding: '0.15cqw',
+                                    borderRadius: '1.2cqw',
                                     transition: 'none',
                                 }}
                                 className={clsx(
@@ -492,9 +461,9 @@ function ButtonEditor() {
                                                 'bg-indigo-600 border-indigo-400 text-white'
                                 )}
                             >
-                                <div className="flex items-center gap-2 px-3 py-2 rounded-[11px]">
-                                    <span className="text-base">{form.icon || '⚡'}</span>
-                                    <span className="text-sm truncate max-w-[100px]">{form.label || '新按鈕'}</span>
+                                <div className="flex items-center gap-[0.8cqw] px-[1.2cqw] py-[0.8cqw] rounded-[1.1cqw]">
+                                    <span style={{ fontSize: '1.6cqw' }}>{form.icon || '⚡'}</span>
+                                    <span className="truncate max-w-[10cqw]" style={{ fontSize: '1.4cqw' }}>{form.label || '新按鈕'}</span>
                                 </div>
                             </div>
                         )}
@@ -583,9 +552,19 @@ function ButtonEditor() {
                                 </div>
 
 
-                                <div className="grid grid-cols-2 gap-3">
-                                    <Input label="按鈕名稱" placeholder="例：大門" value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} id="btn-label-input" />
-                                    <Input label="序號 (SN)" placeholder="serial_number" value={form.deviceId} onChange={(e) => setForm((f) => ({ ...f, deviceId: e.target.value }))} id="btn-device-input" />
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <Input label="按鈕名稱" placeholder="例：大門" value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} id="btn-label-input" />
+                                        <Input label="序號 (SN)" placeholder="serial_number" value={form.deviceId} onChange={(e) => setForm((f) => ({ ...f, deviceId: e.target.value }))} id="btn-device-input" />
+                                    </div>
+                                    <Select
+                                        label="所屬 iHost"
+                                        value={form.hostId || ''}
+                                        onChange={(e) => setForm((f) => ({ ...f, hostId: e.target.value || undefined }))}
+                                    >
+                                        <option value="">預設主機 (.env.local)</option>
+                                        {hosts.map(h => <option key={h.id} value={h.id}>{h.name} ({h.ip})</option>)}
+                                    </Select>
                                 </div>
 
                                 {/* 2. 按鈕縮放 */}
@@ -666,7 +645,7 @@ const CHANNEL_ICONS = ['💡', '🔌', '🚿', '🚗'];
 const CHANNEL_COLOR: Array<'warning' | 'success' | 'default' | 'danger'> = ['warning', 'success', 'default', 'danger'];
 
 function DevicesTab() {
-    const { cameras, addButton } = useConfigStore();
+    const { cameras, hosts, addButton } = useConfigStore();
     const [devices, setDevices] = useState<IHostDevice[]>([]);
     const [status, setStatus] = useState<'idle' | 'ok' | 'err'>('idle');
     const [errMsg, setErrMsg] = useState('');
@@ -674,6 +653,7 @@ function DevicesTab() {
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set()); // deviceId[:outlet]
     const [isPending, startTransition] = useTransition();
+    const [activeHostId, setActiveHostId] = useState<string>('');
 
     // Target camera for quick-add
     const [targetCamId, setTargetCamId] = useState(cameras[0]?.id ?? '');
@@ -685,7 +665,8 @@ function DevicesTab() {
 
     const refresh = () => {
         startTransition(async () => {
-            const result = await fetchDevicesAction();
+            const hId = activeHostId === '' ? undefined : activeHostId;
+            const result = await fetchDevicesAction(hId);
             if (result.success) {
                 setDevices(result.devices);
                 setStatus('ok');
@@ -734,6 +715,7 @@ function DevicesTab() {
             x: 15 + (outlet ?? 0) * 25,
             y: 80,
             variant: outlet !== undefined ? CHANNEL_COLOR[outlet] : 'default',
+            hostId: activeHostId === '' ? undefined : activeHostId,
         });
         setAddedKeys((prev) => new Set([...prev, key]));
     };
@@ -746,11 +728,26 @@ function DevicesTab() {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-                <p className="text-slate-400 text-sm">掃描 iHost 設備，一鍵將各通道加入攝影機疊加按鈕</p>
-                <Btn variant="primary" onClick={refresh} disabled={isPending} id="refresh-devices-btn">
+            <div className="flex items-center gap-4 flex-wrap bg-slate-900/40 p-3 rounded-xl border border-white/5">
+                <div className="flex-1 min-w-[200px] flex items-center gap-3">
+                    <span className="text-slate-400 text-xs font-semibold whitespace-nowrap">掃描來源：</span>
+                    <select
+                        value={activeHostId}
+                        onChange={(e) => {
+                            setActiveHostId(e.target.value);
+                            setStatus('idle');
+                            setDevices([]);
+                        }}
+                        className="flex-1 max-w-[200px] bg-slate-950/50 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500/50"
+                    >
+                        <option value="">預設主機 (.env.local)</option>
+                        {hosts.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+                    </select>
+                </div>
+
+                <Btn variant="primary" onClick={refresh} disabled={isPending} id="refresh-devices-btn" className="ml-auto px-4">
                     {isPending ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                    掃描設備
+                    開始掃描
                 </Btn>
             </div>
 
@@ -922,8 +919,6 @@ function DevicesTab() {
         </div>
     );
 }
-
-// ─── Admin Page ────────────────────────────────────────────────────────────────
 
 const TABS = [
     { id: 'cameras', label: '鏡頭管理', icon: Camera },

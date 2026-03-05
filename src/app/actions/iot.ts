@@ -1,6 +1,26 @@
 'use server';
 
 import { setSwitch, getDevices, getDeviceState } from '@/lib/ihost-api';
+function getHostEnvConfig(hostId?: string): { ip: string, token: string } | undefined {
+    if (!hostId || hostId === 'default' || hostId === '') {
+        if (process.env.IHOST_IP && process.env.IHOST_ACCESS_TOKEN) {
+            return { ip: process.env.IHOST_IP, token: process.env.IHOST_ACCESS_TOKEN };
+        }
+        return undefined;
+    }
+
+    // 從 hostId 提取數字 (例如 "host2" -> "2")
+    const match = hostId.match(/^host(\d+)$/);
+    if (match) {
+        const num = match[1];
+        const ip = process.env[`IHOST${num}_IP`];
+        const token = process.env[`IHOST${num}_ACCESS_TOKEN`];
+        if (ip && token) {
+            return { ip, token };
+        }
+    }
+    return undefined;
+}
 
 export type ActionResult =
     | { success: true; message: string }
@@ -10,11 +30,13 @@ export type ActionResult =
 export async function triggerSwitchAction(
     deviceId: string,
     action: 'on' | 'off' | 'toggle',
-    outlet?: number   // 多通道設備的通道索引
+    outlet?: number,   // 多通道設備的通道索引
+    hostId?: string
 ): Promise<ActionResult> {
     try {
-        console.log(`[Action] Triggering switch: ${deviceId}, action: ${action}, outlet: ${outlet}`);
-        await setSwitch(deviceId, action, outlet);
+        console.log(`[Action] Triggering switch: ${deviceId}, host: ${hostId}, action: ${action}, outlet: ${outlet}`);
+        const host = getHostEnvConfig(hostId);
+        await setSwitch(deviceId, action, outlet, host);
         const ch = outlet !== undefined ? ` 通道 ${outlet + 1}` : '';
         return {
             success: true,
@@ -30,9 +52,10 @@ export async function triggerSwitchAction(
 }
 
 /** 取得所有設備清單 */
-export async function fetchDevicesAction() {
+export async function fetchDevicesAction(hostId?: string) {
     try {
-        const devices = await getDevices();
+        const host = getHostEnvConfig(hostId);
+        const devices = await getDevices(host);
         return { success: true as const, devices };
     } catch (err) {
         return {
@@ -44,9 +67,10 @@ export async function fetchDevicesAction() {
 }
 
 /** 取得單一設備狀態 */
-export async function fetchDeviceStateAction(deviceId: string) {
+export async function fetchDeviceStateAction(deviceId: string, hostId?: string) {
     try {
-        const state = await getDeviceState(deviceId);
+        const host = getHostEnvConfig(hostId);
+        const state = await getDeviceState(deviceId, host);
         return { success: true as const, state };
     } catch (err) {
         return {

@@ -1,5 +1,12 @@
 // 疊加按鈕的設定型別
 
+export interface IHostConfig {
+    id: string;
+    name: string;
+    ip: string;
+    token?: string;
+}
+
 export type SwitchAction = 'on' | 'off' | 'toggle';
 
 export interface OverlayButton {
@@ -21,6 +28,8 @@ export interface OverlayButton {
     variant?: 'default' | 'danger' | 'success' | 'warning';
     // 縮放大小 (1 為預設)
     scale?: number;
+    // 所屬 iHost ID (若未指定則使用預設)
+    hostId?: string;
 }
 
 export interface CameraConfig {

@@ -61,20 +61,26 @@ export function getChannelStates(device: IHostDevice): ('on' | 'off')[] {
 
 // ── API Client ─────────────────────────────────────────────────────────────────
 
-const IHOST_BASE = `http://${process.env.IHOST_IP}/open-api/v2/rest`;
-const TOKEN = process.env.IHOST_ACCESS_TOKEN;
+const DEFAULT_IP = process.env.IHOST_IP;
+const DEFAULT_TOKEN = process.env.IHOST_ACCESS_TOKEN;
 
-function headers() {
+function getBase(host?: { ip: string }) {
+  const ip = host?.ip || DEFAULT_IP;
+  return `http://${ip}/open-api/v2/rest`;
+}
+
+function headers(host?: { token: string }) {
+  const token = host?.token || DEFAULT_TOKEN;
   return {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${TOKEN}`,
+    Authorization: `Bearer ${token}`,
   };
 }
 
 /** 取得所有設備列表 */
-export async function getDevices(): Promise<IHostDevice[]> {
-  const res = await fetch(`${IHOST_BASE}/devices`, {
-    headers: headers(),
+export async function getDevices(host?: { ip: string, token: string }): Promise<IHostDevice[]> {
+  const res = await fetch(`${getBase(host)}/devices`, {
+    headers: headers(host),
     cache: 'no-store',
   });
   const json: IHostApiResponse<{ device_list: IHostDevice[] }> = await res.json();
@@ -91,14 +97,15 @@ export async function getDevices(): Promise<IHostDevice[]> {
 export async function setSwitch(
   deviceId: string,
   action: 'on' | 'off' | 'toggle',
-  outlet?: number
+  outlet?: number,
+  host?: { ip: string, token: string }
 ) {
   // 決定目標狀態
   let targetValue: 'on' | 'off';
 
   if (action === 'toggle') {
     // 先讀當前狀態
-    const devices = await getDevices();
+    const devices = await getDevices(host);
     const device = devices.find((d) => d.serial_number === deviceId);
     if (!device) throw new Error(`Device ${deviceId} not found`);
 
@@ -123,7 +130,7 @@ export async function setSwitch(
     stateBody = { toggle: { [chName]: { toggleState: targetValue } } };
   } else {
     // 單通道可能使用 power 或 toggle["1"]，這裡保守一點檢查如果是多通道設備但沒傳 outlet 則報錯
-    const devices = await getDevices();
+    const devices = await getDevices(host);
     const device = devices.find(d => d.serial_number === deviceId);
     if (device && device.capabilities.some(c => c.capability === 'power')) {
       stateBody = { power: { powerState: targetValue } };
@@ -133,9 +140,9 @@ export async function setSwitch(
   }
 
   console.log(`[API] Putting state to ${deviceId}:`, JSON.stringify(stateBody));
-  const res = await fetch(`${IHOST_BASE}/devices/${deviceId}`, {
+  const res = await fetch(`${getBase(host)}/devices/${deviceId}`, {
     method: 'PUT',
-    headers: headers(),
+    headers: headers(host),
     body: JSON.stringify({ state: stateBody }),
   });
 
@@ -146,9 +153,9 @@ export async function setSwitch(
 }
 
 /** 取得單一設備狀態 */
-export async function getDeviceState(deviceId: string) {
-  const res = await fetch(`${IHOST_BASE}/devices/${deviceId}`, {
-    headers: headers(),
+export async function getDeviceState(deviceId: string, host?: { ip: string, token: string }) {
+  const res = await fetch(`${getBase(host)}/devices/${deviceId}`, {
+    headers: headers(host),
     cache: 'no-store',
   });
   const json: IHostApiResponse<{ state: Record<string, unknown> }> =

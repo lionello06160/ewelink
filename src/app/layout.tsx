@@ -5,7 +5,7 @@ import './globals.css';
 const geist = Geist({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'eWeLink 監控中心',
+  title: '監視控制中心',
   description: '即時攝影機監控與 IoT 設備控制',
 };
 

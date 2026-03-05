@@ -8,7 +8,7 @@ import {
     useTransition,
 } from 'react';
 import { clsx } from 'clsx';
-import { AlertCircle, Loader2, WifiOff } from 'lucide-react';
+import { AlertCircle, Loader2, WifiOff, Settings, X } from 'lucide-react';
 import type { CameraConfig, OverlayButton } from '@/types/camera';
 import { triggerSwitchAction, fetchDeviceStateAction } from '@/app/actions/iot';
 
@@ -157,15 +157,18 @@ const variantOffStyles = {
 
 interface OverlayButtonProps {
     button: OverlayButton;
+    globalScale: number;
 }
 
-function OverlayBtn({ button }: OverlayButtonProps) {
+function OverlayBtn({ button, globalScale }: OverlayButtonProps) {
     const [isPending, startTransition] = useTransition();
     const [feedback, setFeedback] = useState<'idle' | 'ok' | 'err'>('idle');
     const [isOn, setIsOn] = useState<boolean | null>(null);
 
+    const finalScale = (button.scale ?? 1) * globalScale;
+
     const syncState = useCallback(async () => {
-        const result = await fetchDeviceStateAction(button.deviceId);
+        const result = await fetchDeviceStateAction(button.deviceId, button.hostId);
         if (result.success && result.state) {
             const s = result.state as Record<string, any>;
             let on: boolean;
@@ -178,7 +181,7 @@ function OverlayBtn({ button }: OverlayButtonProps) {
             return on;
         }
         return false;
-    }, [button.deviceId, button.outlet]);
+    }, [button.deviceId, button.outlet, button.hostId]);
 
     useEffect(() => {
         let alive = true;
@@ -188,7 +191,7 @@ function OverlayBtn({ button }: OverlayButtonProps) {
 
     const handleClick = useCallback(() => {
         startTransition(async () => {
-            const result = await triggerSwitchAction(button.deviceId, button.action, button.outlet);
+            const result = await triggerSwitchAction(button.deviceId, button.action, button.outlet, button.hostId);
             if (result.success) {
                 setFeedback('ok');
                 if (button.action === 'on') setIsOn(true);
@@ -205,7 +208,7 @@ function OverlayBtn({ button }: OverlayButtonProps) {
             await new Promise(r => setTimeout(r, 1200));
             await syncState();
         });
-    }, [button.deviceId, button.action, button.outlet, syncState]);
+    }, [button.deviceId, button.action, button.outlet, button.hostId, syncState]);
 
     const variant = button.variant ?? 'default';
     const glowColor = glowColors[variant] ?? glowColors.default;
@@ -218,10 +221,10 @@ function OverlayBtn({ button }: OverlayButtonProps) {
                 position: 'absolute',
                 left: `${button.x}%`,
                 top: `${button.y}%`,
-                transform: `translate(-50%, -50%) scale(${button.scale ?? 1})`,
+                transform: `translate(-50%, -50%) scale(${finalScale})`,
                 zIndex: 20,
-                padding: '1.5px',
-                borderRadius: '12px',
+                padding: '0.2cqw', // 跟隨比例的流光區域
+                borderRadius: '1.4cqw',
                 overflow: 'hidden',
                 transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
                 // 開啟時實心，關閉時透出底層
@@ -231,7 +234,7 @@ function OverlayBtn({ button }: OverlayButtonProps) {
                 'group flex items-center justify-center select-none active:scale-95 transition-transform shadow-xl',
                 'disabled:opacity-50 disabled:cursor-not-allowed',
                 !isOn && 'bg-white/10 backdrop-blur-xl border border-white/5',
-                isOn && 'shadow-[0_0_35px_-5px_rgba(0,0,0,0.6)]',
+                isOn && 'shadow-[0_0_6cqw_-2cqw_rgba(0,0,0,0.6)]',
                 feedback === 'err' && '!bg-red-600 !border-red-400',
             )}
         >
@@ -255,23 +258,39 @@ function OverlayBtn({ button }: OverlayButtonProps) {
             {/* 內容疊加層：負責遮擋中心並顯示樣式 */}
             <div
                 className={clsx(
-                    "relative z-10 w-full h-full flex items-center gap-2 px-3 py-2 rounded-[11px]",
-                    "transition-colors duration-300",
+                    "relative z-10 w-full h-full flex items-center transition-colors duration-300",
                     isOn ? variantOnStyles[variant] : 'bg-transparent',
                 )}
+                style={{
+                    gap: '1.2cqw',
+                    paddingLeft: '1.4cqw',
+                    paddingRight: '1.4cqw',
+                    paddingTop: '0.8cqw',
+                    paddingBottom: '0.8cqw',
+                    borderRadius: '1.2cqw'
+                }}
             >
-                <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                <div
+                    className="flex items-center justify-center shrink-0"
+                    style={{ width: '4.5cqw', height: '4.5cqw' }}
+                >
                     {isPending ? (
-                        <Loader2 size={14} className="animate-spin" />
+                        <Loader2 className="animate-spin" style={{ width: '3cqw', height: '3cqw' }} />
                     ) : feedback === 'err' ? (
-                        <AlertCircle size={14} />
+                        <AlertCircle style={{ width: '3cqw', height: '3cqw' }} />
                     ) : (
-                        <span className="text-base leading-none group-active:scale-120 transition-transform">
+                        <span
+                            className="leading-none group-active:scale-120 transition-transform"
+                            style={{ fontSize: '3.8cqw' }}
+                        >
                             {button.icon ?? '⚡'}
                         </span>
                     )}
                 </div>
-                <span className="font-bold text-sm truncate flex-1 leading-none tracking-tight">
+                <span
+                    className="font-bold truncate flex-1 leading-none tracking-tight"
+                    style={{ fontSize: '3.2cqw' }}
+                >
                     {button.label}
                 </span>
             </div>
@@ -284,31 +303,45 @@ function OverlayBtn({ button }: OverlayButtonProps) {
 function StatusBadge({ status }: { status: 'connecting' | 'live' | 'error' | 'stale' }) {
     if (status === 'live') {
         return (
-            <div className="absolute top-4 left-4 z-20 flex items-center gap-2.5">
+            <div
+                className="absolute z-20 flex items-center"
+                style={{ top: '1.5cqw', left: '1.5cqw', gap: '1cqw' }}
+            >
                 <span
                     className="live-breathe inline-block"
                     style={{
-                        width: 14, height: 14,
+                        width: '1.2cqw', height: '1.2cqw',
                         background: 'radial-gradient(circle at 35% 35%, #ffffff 0%, #4ade80 40%, #166534 80%, #064e3b 100%)',
-                        boxShadow: '0 0 15px rgba(74, 222, 128, 0.5)',
+                        boxShadow: '0 0 1cqw rgba(74, 222, 128, 0.5)',
                     }}
                 />
-                <span className="font-black text-red-500 text-xs tracking-[0.15em] drop-shadow-[0_0_5px_rgba(239,68,68,0.5)]">
+                <span
+                    className="font-black text-red-500 tracking-[0.15em] drop-shadow-[0_0_0.5cqw_rgba(239,68,68,0.5)]"
+                    style={{ fontSize: '1.2cqw' }}
+                >
                     LIVE
                 </span>
             </div>
         );
     }
     return (
-        <div className={clsx(
-            'absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold backdrop-blur-md border border-white/10',
-            status === 'stale' && 'bg-amber-600/90 text-white animate-pulse',
-            status === 'connecting' && 'bg-slate-800/80 text-indigo-300',
-            status === 'error' && 'bg-red-600/80 text-white border-red-400',
-        )}>
-            {status === 'stale' && <><AlertCircle size={12} /> 畫面凍結</>}
-            {status === 'connecting' && <><Loader2 size={12} className="animate-spin" /> 連線中</>}
-            {status === 'error' && <><WifiOff size={12} /> 串流中斷</>}
+        <div
+            className={clsx(
+                'absolute z-20 flex items-center font-bold backdrop-blur-md border border-white/10 text-white',
+                status === 'stale' && 'bg-amber-600/90 animate-pulse',
+                status === 'connecting' && 'bg-slate-800/80 text-indigo-300',
+                status === 'error' && 'bg-red-600/80 border-red-400',
+            )}
+            style={{
+                top: '1.5cqw', left: '1.5cqw', gap: '0.8cqw',
+                paddingLeft: '1.2cqw', paddingRight: '1.2cqw',
+                paddingTop: '0.6cqw', paddingBottom: '0.6cqw',
+                borderRadius: '10cqw', fontSize: '1cqw'
+            }}
+        >
+            {status === 'stale' && <><AlertCircle style={{ width: '1.2cqw' }} /> 畫面凍結</>}
+            {status === 'connecting' && <><Loader2 style={{ width: '1.2cqw' }} className="animate-spin" /> 連線中</>}
+            {status === 'error' && <><WifiOff style={{ width: '1.2cqw' }} /> 串流中斷</>}
         </div>
     );
 }
@@ -323,11 +356,25 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
     const streamBaseUrl = process.env.NEXT_PUBLIC_STREAM_BASE_URL ?? '';
     const whepUrl = `${streamBaseUrl}/${config.streamPath}/whep`;
     const [streamStatus, setStreamStatus] = useState<'connecting' | 'live' | 'error' | 'stale'>('connecting');
+    const [localGlobalScale, setLocalGlobalScale] = useState(1);
+    const [showControls, setShowControls] = useState(false);
+
+    // 從 LocalStorage 載入個人偏好
+    useEffect(() => {
+        const savedScale = localStorage.getItem('ewelink_global_btn_scale');
+        if (savedScale) setLocalGlobalScale(parseFloat(savedScale));
+    }, []);
+
+    const handleScaleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = parseFloat(e.target.value);
+        setLocalGlobalScale(val);
+        localStorage.setItem('ewelink_global_btn_scale', val.toString());
+    };
 
     return (
         <div
             id={`camera-${config.id}`}
-            className="relative w-full overflow-hidden rounded-2xl bg-[#0a0a0a] shadow-2xl group/camera"
+            className="relative w-full overflow-hidden rounded-2xl bg-[#0a0a0a] shadow-2xl group/camera [container-type:inline-size]"
             style={{ aspectRatio: '16/9' }}
         >
             <style>{KEYFRAMES}</style>
@@ -348,14 +395,53 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
 
             <StatusBadge status={streamStatus} />
 
-            <div className="absolute top-4 right-4 z-20 px-3 py-1.5 rounded-full bg-black/40 border border-white/10 text-[11px] font-bold text-white/70 backdrop-blur-md">
-                {config.name.toUpperCase()}
+            <div
+                className="absolute top-4 right-4 z-40 flex items-center gap-2"
+            >
+                {showControls && (
+                    <div className="flex flex-col gap-3 p-4 bg-slate-900/95 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-200 min-w-[180px]">
+                        <div className="flex items-center justify-between gap-4">
+                            <span className="text-[10px] font-bold text-white/60 uppercase tracking-widest">按鈕縮放</span>
+                            <button
+                                onClick={() => setShowControls(false)}
+                                className="p-1 hover:bg-white/10 rounded-full transition-colors text-white/40 hover:text-white"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                            <div className="flex justify-between items-center">
+                                <span className="text-[10px] text-white/40 font-mono italic">Scale Factor</span>
+                                <span className="text-[10px] font-mono font-bold text-indigo-400">{Math.round(localGlobalScale * 100)}%</span>
+                            </div>
+                            <input
+                                type="range" min="0.5" max="2.0" step="0.1"
+                                value={localGlobalScale}
+                                onChange={handleScaleChange}
+                                className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-400"
+                            />
+                        </div>
+                    </div>
+                )}
+
+                <button
+                    onClick={() => setShowControls(!showControls)}
+                    className={clsx(
+                        "flex items-center px-4 py-2 rounded-full backdrop-blur-md border transition-all duration-300",
+                        showControls
+                            ? "bg-indigo-600 border-indigo-400 text-white shadow-[0_0_20px_rgba(79,70,229,0.5)]"
+                            : "bg-black/40 border-white/10 text-white/70 hover:bg-black/60"
+                    )}
+                >
+                    <span className="text-[11px] font-black uppercase tracking-widest">{config.name}</span>
+                </button>
             </div>
 
             <div className="absolute inset-0 z-20 pointer-events-none">
                 {config.buttons.map((btn) => (
                     <div key={btn.id} className="pointer-events-auto">
-                        <OverlayBtn button={btn} />
+                        <OverlayBtn button={btn} globalScale={localGlobalScale} />
                     </div>
                 ))}
             </div>

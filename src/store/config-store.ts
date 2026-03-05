@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { CameraConfig, OverlayButton, AppSettings } from '@/types/camera';
+import type { CameraConfig, OverlayButton, AppSettings, IHostConfig } from '@/types/camera';
 import {
     getConfigAction,
     addCameraAction,
@@ -16,6 +16,7 @@ import {
 interface ConfigState {
     cameras: CameraConfig[];
     settings: AppSettings;
+    hosts: IHostConfig[];
     loaded: boolean;
 
     // 從 JSON 檔案載入（在 app 初始化時呼叫）
@@ -40,12 +41,13 @@ interface ConfigState {
 export const useConfigStore = create<ConfigState>()((set, get) => ({
     cameras: [],
     settings: { columns: 2 },
+    hosts: [],
     loaded: false,
 
     loadConfig: async () => {
         if (get().loaded) return;
-        const { cameras, settings } = await getConfigAction();
-        set({ cameras, settings, loaded: true });
+        const { cameras, settings, hosts } = await getConfigAction();
+        set({ cameras, settings, hosts, loaded: true });
     },
 
     // ── Camera operations ──
