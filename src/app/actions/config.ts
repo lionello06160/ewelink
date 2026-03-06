@@ -12,17 +12,28 @@ export async function getConfigAction() {
     const config = readConfig();
 
     // Auto-detect hosts from env. Do not expose tokens to frontend
-    const hosts: Array<{ id: string, name: string, ip: string }> = [];
-    if (process.env.IHOST_IP) {
-        hosts.push({ id: 'default', name: '預設主機 (.env)', ip: process.env.IHOST_IP });
-    }
+    const hosts: Array<{ id: string, name: string, ip: string, lanIp?: string, tailscaleIp?: string }> = [];
+    const pushHost = (id: string, name: string, prefix = 'IHOST') => {
+        const apiIp = process.env[`${prefix}_IP`];
+        const lanIp = process.env[`${prefix}_LAN_IP`];
+        const tailscaleIp = process.env[`${prefix}_TAILSCALE_IP`] ?? apiIp;
+
+        if (!apiIp && !lanIp && !tailscaleIp) return;
+
+        hosts.push({
+            id,
+            name,
+            ip: apiIp ?? tailscaleIp ?? lanIp ?? '',
+            lanIp,
+            tailscaleIp,
+        });
+    };
+
+    pushHost('default', '預設主機 (.env)');
 
     // 支援 IHOST2_IP, IHOST3_IP ...
     for (let i = 2; i <= 5; i++) {
-        const ip = process.env[`IHOST${i}_IP`];
-        if (ip) {
-            hosts.push({ id: `host${i}`, name: `主機 ${i} (.env)`, ip });
-        }
+        pushHost(`host${i}`, `主機 ${i} (.env)`, `IHOST${i}`);
     }
 
     return {
@@ -34,7 +45,12 @@ export async function getConfigAction() {
 
 // ── 攝影機 CRUD ───────────────────────────────────
 
-export async function addCameraAction(data: { name: string; streamPath: string; backgroundImage?: string }) {
+export async function addCameraAction(data: {
+    name: string;
+    streamPath: string;
+    streamHostId?: string;
+    backgroundImage?: string;
+}) {
     const config = readConfig();
     const newCam: CameraConfig = { id: uid(), ...data, buttons: [] };
     config.cameras.push(newCam);
@@ -44,7 +60,12 @@ export async function addCameraAction(data: { name: string; streamPath: string; 
 
 export async function updateCameraAction(
     id: string,
-    data: { name: string; streamPath: string; backgroundImage?: string }
+    data: {
+        name: string;
+        streamPath: string;
+        streamHostId?: string;
+        backgroundImage?: string;
+    }
 ) {
     const config = readConfig();
     config.cameras = config.cameras.map((c) => (c.id === id ? { ...c, ...data } : c));
@@ -112,4 +133,3 @@ export async function updateSettingsAction(settings: { columns: number }) {
     config.settings = settings;
     writeConfig(config);
 }
-

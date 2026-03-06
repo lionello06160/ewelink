@@ -8,10 +8,12 @@ import {
     useTransition,
 } from 'react';
 import { clsx } from 'clsx';
+import Hls from 'hls.js';
 import { AlertCircle, Loader2, WifiOff, Settings, X } from 'lucide-react';
 import type { CameraConfig, OverlayButton } from '@/types/camera';
 import { triggerSwitchAction, fetchDeviceStateAction } from '@/app/actions/iot';
 import { OverlayButtonView } from '@/components/overlay-button';
+import { useConfigStore } from '@/store/config-store';
 
 // ─── 核心動畫 ──────────────────────────────────────────────────────────────────
 
@@ -35,6 +37,11 @@ const KEYFRAMES = `
 
 interface WhepPlayerProps {
     whepUrl: string;
+    onStatusChange: (status: 'connecting' | 'live' | 'error' | 'stale') => void;
+}
+
+interface HlsPlayerProps {
+    hlsUrl: string;
     onStatusChange: (status: 'connecting' | 'live' | 'error' | 'stale') => void;
 }
 
@@ -127,6 +134,57 @@ function WhepPlayer({ whepUrl, onStatusChange }: WhepPlayerProps) {
             pcRef.current = null;
         };
     }, [whepUrl, onStatusChange]);
+
+    return (
+        <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+    );
+}
+
+function HlsPlayer({ hlsUrl, onStatusChange }: HlsPlayerProps) {
+    const videoRef = useRef<HTMLVideoElement>(null);
+
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video) return;
+
+        let hls: Hls | null = null;
+        onStatusChange('connecting');
+
+        const onCanPlay = () => onStatusChange('live');
+        const onError = () => onStatusChange('error');
+
+        video.addEventListener('canplay', onCanPlay);
+        video.addEventListener('error', onError);
+
+        if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = hlsUrl;
+            void video.play().catch(() => {});
+        } else if (Hls.isSupported()) {
+            hls = new Hls({
+                lowLatencyMode: true,
+                backBufferLength: 30,
+            });
+            hls.loadSource(hlsUrl);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                void video.play().catch(() => {});
+            });
+            hls.on(Hls.Events.ERROR, (_, data) => {
+                if (data.fatal) onStatusChange('error');
+            });
+        } else {
+            onStatusChange('error');
+        }
+
+        return () => {
+            video.pause();
+            video.removeAttribute('src');
+            video.load();
+            video.removeEventListener('canplay', onCanPlay);
+            video.removeEventListener('error', onError);
+            hls?.destroy();
+        };
+    }, [hlsUrl, onStatusChange]);
 
     return (
         <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
@@ -246,16 +304,134 @@ function StatusBadge({ status }: { status: 'connecting' | 'live' | 'error' | 'st
     );
 }
 
+function RouteBadge({ route }: { route: 'lan' | 'tailscale' }) {
+    return (
+        <div
+            className={clsx(
+                'absolute z-20 flex items-center font-bold backdrop-blur-md border text-white/90',
+                route === 'lan'
+                    ? 'bg-emerald-500/15 border-emerald-400/30'
+                    : 'bg-cyan-500/15 border-cyan-400/30'
+            )}
+            style={{
+                top: '1.5cqw',
+                right: '1.5cqw',
+                gap: '0.7cqw',
+                paddingLeft: '1cqw',
+                paddingRight: '1cqw',
+                paddingTop: '0.5cqw',
+                paddingBottom: '0.5cqw',
+                borderRadius: '10cqw',
+                fontSize: '0.9cqw',
+            }}
+        >
+            <span
+                className={clsx(
+                    'inline-block rounded-full',
+                    route === 'lan' ? 'bg-emerald-400' : 'bg-cyan-400'
+                )}
+                style={{ width: '0.7cqw', height: '0.7cqw' }}
+            />
+            <span>{route === 'lan' ? 'LAN' : 'TAILSCALE'}</span>
+        </div>
+    );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 interface CameraOverlayProps {
     config: CameraConfig;
 }
 
+type StreamMode = 'auto' | 'low-latency' | 'stable';
+type RouteMode = 'auto' | 'lan' | 'tailscale';
+type CameraRoutePreference = 'global' | 'lan' | 'tailscale';
+
+const ROUTE_CACHE_KEY = 'ewelink_stream_route_cache_v1';
+const ROUTE_CACHE_TTL = 5 * 60 * 1000;
+const CAMERA_ROUTE_KEY = 'ewelink_camera_route_preferences_v1';
+
+function getRouteCache(): Record<string, { route: 'lan' | 'tailscale'; ts: number }> {
+    if (typeof window === 'undefined') return {};
+    try {
+        const raw = localStorage.getItem(ROUTE_CACHE_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch {
+        return {};
+    }
+}
+
+function setRouteCache(hostId: string, route: 'lan' | 'tailscale') {
+    if (typeof window === 'undefined') return;
+    const cache = getRouteCache();
+    cache[hostId] = { route, ts: Date.now() };
+    localStorage.setItem(ROUTE_CACHE_KEY, JSON.stringify(cache));
+}
+
+function getCameraRoutePreferences(): Record<string, CameraRoutePreference> {
+    if (typeof window === 'undefined') return {};
+    try {
+        const raw = localStorage.getItem(CAMERA_ROUTE_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch {
+        return {};
+    }
+}
+
+function setCameraRoutePreference(cameraId: string, preference: CameraRoutePreference) {
+    if (typeof window === 'undefined') return;
+    const prefs = getCameraRoutePreferences();
+    if (preference === 'global') delete prefs[cameraId];
+    else prefs[cameraId] = preference;
+    localStorage.setItem(CAMERA_ROUTE_KEY, JSON.stringify(prefs));
+}
+
+function shouldPreferHls(streamBaseUrl: string) {
+    if (!streamBaseUrl) return false;
+
+    try {
+        const { hostname } = new URL(streamBaseUrl);
+        if (hostname.endsWith('.ts.net')) return true;
+        if (/^100\.\d+\.\d+\.\d+$/.test(hostname)) return true;
+    } catch {
+        return false;
+    }
+
+    return false;
+}
+
+function makeStreamBaseUrl(ip?: string) {
+    return ip ? `http://${ip}:8889` : '';
+}
+
 export function CameraOverlay({ config }: CameraOverlayProps) {
-    const streamBaseUrl = process.env.NEXT_PUBLIC_STREAM_BASE_URL ?? '';
+    const hosts = useConfigStore((state) => state.hosts);
+    const activeHost = config.streamHostId
+        ? hosts.find((host) => host.id === config.streamHostId)
+        : hosts[0];
+    const [routeMode, setRouteMode] = useState<RouteMode>('auto');
+    const [cameraRoutePreference, setCameraRoutePreferenceState] = useState<CameraRoutePreference>('global');
+    const [selectedRoute, setSelectedRoute] = useState<'lan' | 'tailscale'>(() => activeHost?.lanIp ? 'lan' : 'tailscale');
+    const streamBaseUrl = activeHost
+        ? makeStreamBaseUrl(
+            selectedRoute === 'lan'
+                ? (activeHost.lanIp ?? activeHost.tailscaleIp ?? activeHost.ip)
+                : (activeHost.tailscaleIp ?? activeHost.ip ?? activeHost.lanIp)
+        )
+        : (process.env.NEXT_PUBLIC_STREAM_BASE_URL ?? '');
     const whepUrl = `${streamBaseUrl}/${config.streamPath}/whep`;
+    const hlsUrl = (() => {
+        if (!streamBaseUrl) return '';
+        const url = new URL(streamBaseUrl);
+        url.port = '8888';
+        url.pathname = `/${config.streamPath}/index.m3u8`;
+        return url.toString();
+    })();
+    const [streamMode, setStreamMode] = useState<StreamMode>('auto');
     const [streamStatus, setStreamStatus] = useState<'connecting' | 'live' | 'error' | 'stale'>('connecting');
+    const [playbackMode, setPlaybackMode] = useState<'whep' | 'hls'>(
+        shouldPreferHls(streamBaseUrl) ? 'hls' : 'whep'
+    );
     const [localGlobalScale, setLocalGlobalScale] = useState(1);
     const [showControls, setShowControls] = useState(false);
 
@@ -271,6 +447,131 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
         localStorage.setItem('ewelink_global_btn_scale', val.toString());
     };
 
+    useEffect(() => {
+        const applyMode = () => {
+            const saved = localStorage.getItem('ewelink_stream_mode');
+            if (saved === 'low-latency' || saved === 'stable' || saved === 'auto') {
+                setStreamMode(saved);
+            } else {
+                setStreamMode('auto');
+            }
+        };
+
+        applyMode();
+        window.addEventListener('ewelink-stream-mode-changed', applyMode);
+        return () => window.removeEventListener('ewelink-stream-mode-changed', applyMode);
+    }, []);
+
+    useEffect(() => {
+        const applyRouteMode = () => {
+            const saved = localStorage.getItem('ewelink_stream_route_mode');
+            if (saved === 'auto' || saved === 'lan' || saved === 'tailscale') {
+                setRouteMode(saved);
+            } else {
+                setRouteMode('auto');
+            }
+        };
+
+        applyRouteMode();
+        window.addEventListener('ewelink-stream-route-mode-changed', applyRouteMode);
+        return () => window.removeEventListener('ewelink-stream-route-mode-changed', applyRouteMode);
+    }, []);
+
+    useEffect(() => {
+        const applyCameraRoutePreference = () => {
+            const saved = getCameraRoutePreferences()[config.id];
+            if (saved === 'lan' || saved === 'tailscale') {
+                setCameraRoutePreferenceState(saved);
+            } else {
+                setCameraRoutePreferenceState('global');
+            }
+        };
+
+        applyCameraRoutePreference();
+        window.addEventListener('ewelink-camera-route-preference-changed', applyCameraRoutePreference);
+        return () => window.removeEventListener('ewelink-camera-route-preference-changed', applyCameraRoutePreference);
+    }, [config.id]);
+
+    useEffect(() => {
+        if (!activeHost) return;
+        const effectiveRouteMode: RouteMode =
+            cameraRoutePreference === 'global' ? routeMode : cameraRoutePreference;
+
+        const chooseFallback = () => {
+            if (effectiveRouteMode === 'lan') return setSelectedRoute(activeHost.lanIp ? 'lan' : 'tailscale');
+            if (effectiveRouteMode === 'tailscale') return setSelectedRoute(activeHost.tailscaleIp ? 'tailscale' : 'lan');
+            return setSelectedRoute(activeHost.lanIp ? 'lan' : 'tailscale');
+        };
+
+        if (effectiveRouteMode !== 'auto') {
+            chooseFallback();
+            return;
+        }
+
+        const cache = getRouteCache()[activeHost.id];
+        if (cache && Date.now() - cache.ts < ROUTE_CACHE_TTL) {
+            setSelectedRoute(cache.route);
+            return;
+        }
+
+        if (!activeHost.lanIp) {
+            setSelectedRoute('tailscale');
+            setRouteCache(activeHost.id, 'tailscale');
+            return;
+        }
+
+        let alive = true;
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 1200);
+        const probeUrl = `http://${activeHost.lanIp}:8888/${config.streamPath}/index.m3u8?ts=${Date.now()}`;
+
+        fetch(probeUrl, {
+            method: 'GET',
+            mode: 'no-cors',
+            cache: 'no-store',
+            signal: controller.signal,
+        })
+            .then(() => {
+                if (!alive) return;
+                setSelectedRoute('lan');
+                setRouteCache(activeHost.id, 'lan');
+            })
+            .catch(() => {
+                if (!alive) return;
+                setSelectedRoute('tailscale');
+                setRouteCache(activeHost.id, 'tailscale');
+            })
+            .finally(() => window.clearTimeout(timeoutId));
+
+        return () => {
+            alive = false;
+            controller.abort();
+            window.clearTimeout(timeoutId);
+        };
+    }, [activeHost, config.streamPath, routeMode, cameraRoutePreference]);
+
+    const handleStreamStatus = useCallback((status: 'connecting' | 'live' | 'error' | 'stale') => {
+        if (playbackMode === 'whep' && status === 'error' && hlsUrl) {
+            setPlaybackMode('hls');
+            setStreamStatus('connecting');
+            return;
+        }
+        setStreamStatus(status);
+    }, [playbackMode, hlsUrl]);
+
+    useEffect(() => {
+        const preferredMode =
+            streamMode === 'stable'
+                ? 'hls'
+                : streamMode === 'low-latency'
+                    ? 'whep'
+                    : shouldPreferHls(streamBaseUrl)
+                        ? 'hls'
+                        : 'whep';
+        setPlaybackMode(preferredMode);
+        setStreamStatus('connecting');
+    }, [streamBaseUrl, whepUrl, hlsUrl, streamMode]);
+
     return (
         <div
             id={`camera-${config.id}`}
@@ -278,7 +579,11 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
             style={{ aspectRatio: '16/9' }}
         >
             <style>{KEYFRAMES}</style>
-            <WhepPlayer whepUrl={whepUrl} onStatusChange={setStreamStatus} />
+            {playbackMode === 'whep' ? (
+                <WhepPlayer whepUrl={whepUrl} onStatusChange={handleStreamStatus} />
+            ) : (
+                <HlsPlayer hlsUrl={hlsUrl} onStatusChange={setStreamStatus} />
+            )}
 
             {streamStatus !== 'live' && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-xl z-10 gap-4">
@@ -294,9 +599,11 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
             )}
 
             <StatusBadge status={streamStatus} />
+            <RouteBadge route={selectedRoute} />
 
             <div
                 className="absolute top-4 right-4 z-40 flex items-center gap-2"
+                style={{ top: '4.5cqw' }}
             >
                 {showControls && (
                     <div className="flex flex-col gap-3 p-4 bg-slate-900/95 backdrop-blur-2xl border border-white/20 rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-200 min-w-[180px]">
@@ -321,6 +628,41 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
                                 onChange={handleScaleChange}
                                 className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-400"
                             />
+                        </div>
+
+                        <div className="flex flex-col gap-2 border-t border-white/10 pt-3">
+                            <div className="flex justify-between items-center">
+                                <span className="text-[10px] text-white/60 font-bold uppercase tracking-widest">串流路徑</span>
+                                <span className="text-[10px] text-white/40">
+                                    {cameraRoutePreference === 'global'
+                                        ? `跟隨全域 (${routeMode === 'auto' ? 'Auto' : routeMode.toUpperCase()})`
+                                        : `固定 ${cameraRoutePreference.toUpperCase()}`}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1">
+                                {([
+                                    ['global', '跟隨'],
+                                    ['lan', 'LAN'],
+                                    ['tailscale', 'VPN'],
+                                ] as const).map(([mode, label]) => (
+                                    <button
+                                        key={mode}
+                                        onClick={() => {
+                                            setCameraRoutePreferenceState(mode);
+                                            setCameraRoutePreference(config.id, mode);
+                                            window.dispatchEvent(new Event('ewelink-camera-route-preference-changed'));
+                                        }}
+                                        className={clsx(
+                                            'px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all border',
+                                            cameraRoutePreference === mode
+                                                ? 'bg-cyan-600/90 border-cyan-400 text-white'
+                                                : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:bg-white/10'
+                                        )}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 )}

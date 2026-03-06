@@ -23,8 +23,18 @@ interface ConfigState {
     loadConfig: () => Promise<void>;
 
     // ── Camera CRUD ────────────────────────────────
-    addCamera: (data: { name: string; streamPath: string; backgroundImage?: string }) => Promise<void>;
-    updateCamera: (id: string, data: { name: string; streamPath: string; backgroundImage?: string }) => Promise<void>;
+    addCamera: (data: {
+        name: string;
+        streamPath: string;
+        streamHostId?: string;
+        backgroundImage?: string;
+    }) => Promise<void>;
+    updateCamera: (id: string, data: {
+        name: string;
+        streamPath: string;
+        streamHostId?: string;
+        backgroundImage?: string;
+    }) => Promise<void>;
     deleteCamera: (id: string) => Promise<void>;
     moveCamera: (id: string, direction: 'up' | 'down') => Promise<void>;
 

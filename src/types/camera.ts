@@ -4,6 +4,8 @@ export interface IHostConfig {
     id: string;
     name: string;
     ip: string;
+    lanIp?: string;
+    tailscaleIp?: string;
     token?: string;
 }
 
@@ -37,6 +39,8 @@ export interface CameraConfig {
     name: string;
     // mediamtx WHEP 串流路徑名稱（例如 "cam-b1p"）
     streamPath: string;
+    // 串流所屬 iHost ID (若未指定則使用預設主機)
+    streamHostId?: string;
     backgroundImage?: string; // 編輯時的參考背景圖 (DataURL 或 URL)
     buttons: OverlayButton[];
 }

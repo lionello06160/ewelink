@@ -9,6 +9,8 @@ import { useConfigStore } from '@/store/config-store';
 import { ConfigLoader } from '@/components/config-loader';
 
 type ColumnMode = 'auto' | 1 | 2 | 3 | 4;
+type StreamMode = 'auto' | 'low-latency' | 'stable';
+type RouteMode = 'auto' | 'lan' | 'tailscale';
 
 function getAutoColumnCount(width: number) {
   if (width >= 1536) return 4;
@@ -21,6 +23,8 @@ export default function HomePage() {
   const cameras = useConfigStore((s) => s.cameras);
   const settings = useConfigStore((s) => s.settings);
   const [localColumns, setLocalColumns] = useState<ColumnMode>(2);
+  const [streamMode, setStreamMode] = useState<StreamMode>('auto');
+  const [routeMode, setRouteMode] = useState<RouteMode>('auto');
   const [viewportWidth, setViewportWidth] = useState<number>(0);
   const effectiveColumns = Math.max(
     1,
@@ -51,6 +55,20 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    const saved = localStorage.getItem('ewelink_stream_mode');
+    if (saved === 'auto' || saved === 'low-latency' || saved === 'stable') {
+      setStreamMode(saved);
+    }
+  }, []);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('ewelink_stream_route_mode');
+    if (saved === 'auto' || saved === 'lan' || saved === 'tailscale') {
+      setRouteMode(saved);
+    }
+  }, []);
+
+  useEffect(() => {
     const updateWidth = () => setViewportWidth(window.innerWidth);
     updateWidth();
     window.addEventListener('resize', updateWidth);
@@ -61,7 +79,8 @@ export default function HomePage() {
     <div className="min-h-dvh flex flex-col">
       <ConfigLoader />
       {/* Header */}
-      <header className="border-b border-white/5 px-6 py-4 flex items-center gap-3">
+      <header className="border-b border-white/5 px-6 py-4">
+        <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm">
             e
@@ -75,11 +94,7 @@ export default function HomePage() {
             </p>
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-6">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 hidden sm:flex">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            本地 LAN 模式
-          </div>
+        <div className="ml-auto flex items-center gap-3">
 
           <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-1">
             {(['auto', 1, 2, 3, 4] as const).map((num) => (
@@ -102,6 +117,50 @@ export default function HomePage() {
             ))}
           </div>
 
+          <div className="hidden xl:flex items-center gap-3">
+            <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-1">
+              {(['auto', 'lan', 'tailscale'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    setRouteMode(mode);
+                    localStorage.setItem('ewelink_stream_route_mode', mode);
+                    window.dispatchEvent(new Event('ewelink-stream-route-mode-changed'));
+                  }}
+                  className={clsx(
+                    "px-3 py-1.5 rounded-md text-[11px] font-bold transition-all",
+                    routeMode === mode
+                      ? "bg-cyan-600 text-white shadow-lg"
+                      : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
+                  )}
+                >
+                  {mode === 'auto' ? '自動路徑' : mode === 'lan' ? '本地 LAN' : 'VPN'}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-1">
+              {(['auto', 'low-latency', 'stable'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    setStreamMode(mode);
+                    localStorage.setItem('ewelink_stream_mode', mode);
+                    window.dispatchEvent(new Event('ewelink-stream-mode-changed'));
+                  }}
+                  className={clsx(
+                    "px-3 py-1.5 rounded-md text-[11px] font-bold transition-all",
+                    streamMode === mode
+                      ? "bg-emerald-600 text-white shadow-lg"
+                      : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
+                  )}
+                >
+                  {mode === 'auto' ? '自動' : mode === 'low-latency' ? '低延遲' : '穩定'}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <Link
             href="/admin"
             id="nav-admin"
@@ -114,6 +173,26 @@ export default function HomePage() {
             <Settings size={13} />
             管理設定
           </Link>
+        </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>
+              路徑: {routeMode === 'auto' ? '自動切換 LAN / Tailscale' : routeMode === 'lan' ? '固定 LAN' : '固定 Tailscale'}
+            </span>
+          </div>
+          <div>
+            串流: {streamMode === 'auto'
+              ? '自動平衡延遲與穩定'
+              : streamMode === 'low-latency'
+                ? '低延遲優先'
+                : '穩定優先'}
+          </div>
+          <div>
+            欄位: {localColumns === 'auto' ? '自動排列' : `${localColumns} 欄`}
+          </div>
         </div>
       </header>
 

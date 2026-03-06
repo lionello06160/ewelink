@@ -110,22 +110,49 @@ function Modal({
 // ─── Tab 1: 鏡頭管理 ─────────────────────────────────────────────────────────
 
 function CamerasTab() {
-    const { cameras, addCamera, updateCamera, deleteCamera, moveCamera } = useConfigStore();
-    const [modal, setModal] = useState<null | 'add' | { id: string; name: string; streamPath: string }>(null);
+    const { cameras, hosts, addCamera, updateCamera, deleteCamera, moveCamera } = useConfigStore();
+    const [modal, setModal] = useState<null | 'add' | { id: string; name: string; streamPath: string; streamHostId?: string }>(null);
     const [name, setName] = useState('');
     const [streamPath, setStreamPath] = useState('');
+    const [streamHostId, setStreamHostId] = useState('');
     const [bgImage, setBgImage] = useState('');
 
-    const openAdd = () => { setName(''); setStreamPath(''); setModal('add'); };
+    const selectedHost = hosts.find((host) => host.id === streamHostId) ?? hosts[0];
+    const previewStreamBaseUrl = selectedHost
+        ? `http://${selectedHost.ip}:8889`
+        : (process.env.NEXT_PUBLIC_STREAM_BASE_URL ?? 'http://ihost-ip:8889');
+
+    const openAdd = () => {
+        setName('');
+        setStreamPath('');
+        setStreamHostId('');
+        setBgImage('');
+        setModal('add');
+    };
     const openEdit = (cam: typeof cameras[0]) => {
-        setName(cam.name); setStreamPath(cam.streamPath); setBgImage(cam.backgroundImage ?? '');
-        setModal({ id: cam.id, name: cam.name, streamPath: cam.streamPath });
+        setName(cam.name);
+        setStreamPath(cam.streamPath);
+        setStreamHostId(cam.streamHostId ?? '');
+        setBgImage(cam.backgroundImage ?? '');
+        setModal({ id: cam.id, name: cam.name, streamPath: cam.streamPath, streamHostId: cam.streamHostId });
     };
     const handleSave = () => {
         if (!name.trim() || !streamPath.trim()) return;
-        if (modal === 'add') addCamera({ name: name.trim(), streamPath: streamPath.trim(), backgroundImage: bgImage.trim() });
+        if (modal === 'add') {
+            addCamera({
+                name: name.trim(),
+                streamPath: streamPath.trim(),
+                streamHostId: streamHostId || undefined,
+                backgroundImage: bgImage.trim(),
+            });
+        }
         else if (modal && typeof modal === 'object')
-            updateCamera(modal.id, { name: name.trim(), streamPath: streamPath.trim(), backgroundImage: bgImage.trim() });
+            updateCamera(modal.id, {
+                name: name.trim(),
+                streamPath: streamPath.trim(),
+                streamHostId: streamHostId || undefined,
+                backgroundImage: bgImage.trim(),
+            });
         setModal(null);
     };
 
@@ -177,6 +204,10 @@ function CamerasTab() {
                                 <p className="text-slate-500 text-[10px] mt-0.5 font-mono truncate">
                                     PATH: <span className="text-indigo-400/80">{cam.streamPath}</span>
                                     <span className="mx-2 text-slate-700">|</span>
+                                    <span className="text-slate-500">
+                                        HOST: {hosts.find((host) => host.id === (cam.streamHostId ?? 'default'))?.name ?? '預設主機'}
+                                    </span>
+                                    <span className="mx-2 text-slate-700">|</span>
                                     <span className="text-slate-500">{cam.buttons.length} 個按鈕</span>
                                 </p>
                             </div>
@@ -193,13 +224,19 @@ function CamerasTab() {
                 <Modal title={modal === 'add' ? '新增攝影機' : '編輯攝影機'} onClose={() => setModal(null)}>
                     <Input label="攝影機名稱" placeholder="例：大門攝影機" value={name} onChange={(e) => setName(e.target.value)} id="camera-name-input" />
                     <Input label="mediamtx 串流路徑" placeholder="例：cam-b1p" value={streamPath} onChange={(e) => setStreamPath(e.target.value)} id="camera-stream-input" />
+                    <Select label="串流來源 iHost" value={streamHostId} onChange={(e) => setStreamHostId(e.target.value)}>
+                        <option value="">預設主機 (.env.local)</option>
+                        {hosts.filter((host) => host.id !== 'default').map((host) => (
+                            <option key={host.id} value={host.id}>{host.name} ({host.ip})</option>
+                        ))}
+                    </Select>
                     <Input label="編輯背景圖 URL (建議截圖攝影機畫面)" placeholder="http://... 或 data:image/..." value={bgImage} onChange={(e) => setBgImage(e.target.value)} id="camera-bg-input" />
                     <p className="text-[10px] text-slate-500 italic">
                         提示：您可以先到首頁截一張 16:9 的圖，然後將圖片網址或是 Base64 貼在這裡。
                     </p>
                     <p className="text-xs text-slate-600">
                         WHEP URL：<code className="text-indigo-400 ml-1">
-                            {process.env.NEXT_PUBLIC_STREAM_BASE_URL ?? 'http://ihost-ip:8889'}/{streamPath || 'cam-b1p'}/whep
+                            {previewStreamBaseUrl}/{streamPath || 'cam-b1p'}/whep
                         </code>
                     </p>
                     <div className="flex justify-end gap-2 pt-2">
@@ -305,14 +342,63 @@ function FrameGrabber({ streamUrl, onCapture }: { streamUrl: string; onCapture: 
     );
 }
 
-function ButtonEditor() {
+function CameraPreviewCard({ cameraName, backgroundImage, buttonCount }: {
+    cameraName?: string;
+    backgroundImage?: string;
+    buttonCount?: number;
+}) {
+    return (
+        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-3">
+            <div
+                className="relative overflow-hidden rounded-xl border border-white/10 bg-slate-950 [container-type:inline-size]"
+                style={{
+                    aspectRatio: '16/9',
+                    backgroundImage: backgroundImage ? `url(${backgroundImage})` : undefined,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                }}
+            >
+                {!backgroundImage && (
+                    <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-600">
+                        尚未設定背景預覽
+                    </div>
+                )}
+                <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/65 to-transparent" />
+                <div className="absolute top-[1.5cqw] left-[1.5cqw] flex items-center gap-[1cqw] z-10">
+                    <span className="inline-block h-[1.2cqw] w-[1.2cqw] rounded-full bg-emerald-400 shadow-[0_0_1cqw_rgba(74,222,128,0.5)]" />
+                    <span className="text-red-500 font-black tracking-[0.15em]" style={{ fontSize: '1.1cqw' }}>LIVE</span>
+                </div>
+                <div className="absolute top-[1.2cqw] right-[1.2cqw] z-10 rounded-full border border-white/10 bg-black/45 px-[1.6cqw] py-[0.9cqw] text-white/80 backdrop-blur-md">
+                    <span style={{ fontSize: '1cqw' }} className="font-black tracking-[0.14em]">
+                        {cameraName || '未選擇螢幕'}
+                    </span>
+                </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500">
+                <span>目前目標螢幕</span>
+                <span>{buttonCount ?? 0} 個按鈕</span>
+            </div>
+        </div>
+    );
+}
+
+function ButtonEditor({
+    selectedCamId,
+    onSelectCamIdChange,
+}: {
+    selectedCamId: string;
+    onSelectCamIdChange: (cameraId: string) => void;
+}) {
     const { cameras, hosts, updateCamera, addButton, updateButton, deleteButton, moveButton } = useConfigStore();
-    const [selectedCamId, setSelectedCamId] = useState(cameras[0]?.id ?? '');
     const [editingBtn, setEditingBtn] = useState<OverlayButton | null>(null);
     const [isAdding, setIsAdding] = useState(false);
     const draggingId = useRef<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const cam = cameras.find((c) => c.id === selectedCamId);
+    const streamHost = hosts.find((host) => host.id === (cam?.streamHostId ?? 'default')) ?? hosts[0];
+    const streamBaseUrl = streamHost
+        ? `http://${streamHost.ip}:8889`
+        : (process.env.NEXT_PUBLIC_STREAM_BASE_URL ?? '');
 
     const onPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>, btnId: string) => {
         e.preventDefault();
@@ -364,7 +450,7 @@ function ButtonEditor() {
 
     return (
         <div className="space-y-4">
-            <Select label="選擇要編輯的攝影機" value={selectedCamId} onChange={(e) => setSelectedCamId(e.target.value)} id="select-camera">
+            <Select label="選擇要編輯的螢幕" value={selectedCamId} onChange={(e) => onSelectCamIdChange(e.target.value)} id="select-camera">
                 {cameras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </Select>
 
@@ -472,8 +558,13 @@ function ButtonEditor() {
 
                     {cam && (
                         <FrameGrabber
-                            streamUrl={`${process.env.NEXT_PUBLIC_STREAM_BASE_URL}/${cam.streamPath}/whep`}
-                            onCapture={(dataUrl) => updateCamera(cam.id, { name: cam.name, streamPath: cam.streamPath, backgroundImage: dataUrl })}
+                            streamUrl={`${streamBaseUrl}/${cam.streamPath}/whep`}
+                            onCapture={(dataUrl) => updateCamera(cam.id, {
+                                name: cam.name,
+                                streamPath: cam.streamPath,
+                                streamHostId: cam.streamHostId,
+                                backgroundImage: dataUrl,
+                            })}
                         />
                     )}
                 </div>
@@ -645,7 +736,13 @@ function ButtonEditor() {
 const CHANNEL_ICONS = ['💡', '🔌', '🚿', '🚗'];
 const CHANNEL_COLOR: Array<'warning' | 'success' | 'default' | 'danger'> = ['warning', 'success', 'default', 'danger'];
 
-function DevicesTab() {
+function DevicesTab({
+    selectedCamId,
+    onSelectCamIdChange,
+}: {
+    selectedCamId: string;
+    onSelectCamIdChange: (cameraId: string) => void;
+}) {
     const { cameras, hosts, addButton } = useConfigStore();
     const [devices, setDevices] = useState<IHostDevice[]>([]);
     const [status, setStatus] = useState<'idle' | 'ok' | 'err'>('idle');
@@ -655,9 +752,10 @@ function DevicesTab() {
     const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set()); // deviceId[:outlet]
     const [isPending, startTransition] = useTransition();
     const [activeHostId, setActiveHostId] = useState<string>('');
+    const [draftButton, setDraftButton] = useState<Omit<OverlayButton, 'id'> | null>(null);
 
-    // Target camera for quick-add
-    const [targetCamId, setTargetCamId] = useState(cameras[0]?.id ?? '');
+    const targetCamId = selectedCamId;
+    const targetCamera = cameras.find((camera) => camera.id === targetCamId);
 
     // 切換目標攝影機時，重置「已加入」紀錄，避免按鈕殘留「已加入」狀態
     useEffect(() => {
@@ -700,13 +798,10 @@ function DevicesTab() {
         });
     };
 
-    /** 快速新增單一通道按鈕 */
-    const quickAdd = (device: IHostDevice, outlet?: number) => {
-        if (!targetCamId) return;
+    const buildDraftButton = (device: IHostDevice, outlet?: number): Omit<OverlayButton, 'id'> => {
         const d = device;
         const chLabel = outlet !== undefined ? ` CH${outlet + 1}` : '';
-        const key = outlet !== undefined ? `${d.serial_number}:${outlet}` : d.serial_number;
-        addButton(targetCamId, {
+        return {
             label: `${d.name}${chLabel}`,
             icon: outlet !== undefined ? CHANNEL_ICONS[outlet] ?? '⚡' : '⚡',
             deviceId: d.serial_number,
@@ -717,8 +812,32 @@ function DevicesTab() {
             y: 80,
             variant: outlet !== undefined ? CHANNEL_COLOR[outlet] : 'default',
             hostId: activeHostId === '' ? undefined : activeHostId,
-        });
+        };
+    };
+
+    /** 加入前先編輯單一通道按鈕 */
+    const openQuickAddEditor = (device: IHostDevice, outlet?: number) => {
+        if (!targetCamId) return;
+        setDraftButton(buildDraftButton(device, outlet));
+    };
+
+    /** 快速新增單一通道按鈕 */
+    const quickAdd = (device: IHostDevice, outlet?: number) => {
+        if (!targetCamId) return;
+        const d = device;
+        const key = outlet !== undefined ? `${d.serial_number}:${outlet}` : d.serial_number;
+        addButton(targetCamId, buildDraftButton(device, outlet));
         setAddedKeys((prev) => new Set([...prev, key]));
+    };
+
+    const saveDraftButton = () => {
+        if (!targetCamId || !draftButton || !draftButton.label.trim() || !draftButton.deviceId.trim()) return;
+        const key = draftButton.outlet !== undefined
+            ? `${draftButton.deviceId}:${draftButton.outlet}`
+            : draftButton.deviceId;
+        addButton(targetCamId, draftButton);
+        setAddedKeys((prev) => new Set([...prev, key]));
+        setDraftButton(null);
     };
 
     /** 一鍵加入所有通道 */
@@ -729,6 +848,79 @@ function DevicesTab() {
 
     return (
         <div className="space-y-4">
+            {draftButton && (
+                <Modal title="加入按鈕前先編輯" onClose={() => setDraftButton(null)}>
+                    <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                            <Input
+                                label="按鈕名稱"
+                                value={draftButton.label}
+                                onChange={(e) => setDraftButton((prev) => prev ? { ...prev, label: e.target.value } : prev)}
+                            />
+                            <Input
+                                label="序號 (SN)"
+                                value={draftButton.deviceId}
+                                onChange={(e) => setDraftButton((prev) => prev ? { ...prev, deviceId: e.target.value } : prev)}
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <Select
+                                label="圖示"
+                                value={draftButton.icon ?? '⚡'}
+                                onChange={(e) => setDraftButton((prev) => prev ? { ...prev, icon: e.target.value } : prev)}
+                            >
+                                {EMOJI_CATEGORIES.flatMap((cat) => cat.icons).map((emoji) => (
+                                    <option key={emoji} value={emoji}>{emoji}</option>
+                                ))}
+                            </Select>
+                            <Select
+                                label="顏色樣式"
+                                value={draftButton.variant ?? 'default'}
+                                onChange={(e) => setDraftButton((prev) => prev ? { ...prev, variant: e.target.value as OverlayButton['variant'] } : prev)}
+                            >
+                                {VARIANTS.map((v) => <option key={v} value={v}>{variantLabel[v]}</option>)}
+                            </Select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <Select
+                                label="觸發動作"
+                                value={draftButton.action}
+                                onChange={(e) => setDraftButton((prev) => prev ? { ...prev, action: e.target.value as OverlayButton['action'] } : prev)}
+                            >
+                                {ACTIONS.map((a) => <option key={a} value={a}>{a === 'toggle' ? '切換' : a === 'on' ? '開啟' : '關閉'}</option>)}
+                            </Select>
+                            <Input
+                                label="縮放"
+                                type="number"
+                                min="0.5"
+                                max="2.5"
+                                step="0.1"
+                                value={String(draftButton.scale ?? 1)}
+                                onChange={(e) => setDraftButton((prev) => prev ? { ...prev, scale: Number(e.target.value) || 1 } : prev)}
+                            />
+                        </div>
+
+                        <p className="text-[11px] text-slate-500">
+                            這個名稱只會加到目前選擇的攝影機。之後在「按鈕編輯器」還可以再改。
+                        </p>
+
+                        <div className="flex gap-2 pt-2">
+                            <Btn onClick={() => setDraftButton(null)} className="flex-1 justify-center">取消</Btn>
+                            <Btn
+                                variant="primary"
+                                onClick={saveDraftButton}
+                                disabled={!draftButton.label.trim() || !draftButton.deviceId.trim()}
+                                className="flex-1 justify-center"
+                            >
+                                <Save size={13} /> 加入此按鈕
+                            </Btn>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
             <div className="flex items-center gap-4 flex-wrap bg-slate-900/40 p-3 rounded-xl border border-white/5">
                 <div className="flex-1 min-w-[200px] flex items-center gap-3">
                     <span className="text-slate-400 text-xs font-semibold whitespace-nowrap">掃描來源：</span>
@@ -754,17 +946,24 @@ function DevicesTab() {
 
             {/* 目標攝影機選擇 */}
             {cameras.length > 0 && (
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-                    <Zap size={14} className="text-indigo-400 shrink-0" />
-                    <p className="text-xs text-indigo-300">快速新增到：</p>
-                    <select
-                        value={targetCamId}
-                        onChange={(e) => setTargetCamId(e.target.value)}
-                        className="flex-1 bg-transparent text-indigo-200 text-xs focus:outline-none"
-                        id="quick-add-camera-select"
-                    >
-                        {cameras.map((c) => <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>)}
-                    </select>
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+                    <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+                        <Zap size={14} className="text-indigo-400 shrink-0" />
+                        <p className="text-xs text-indigo-300 whitespace-nowrap">快速新增到：</p>
+                        <select
+                            value={targetCamId}
+                            onChange={(e) => onSelectCamIdChange(e.target.value)}
+                            className="flex-1 bg-transparent text-indigo-200 text-xs focus:outline-none"
+                            id="quick-add-camera-select"
+                        >
+                            {cameras.map((c) => <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>)}
+                        </select>
+                    </div>
+                    <CameraPreviewCard
+                        cameraName={targetCamera?.name}
+                        backgroundImage={targetCamera?.backgroundImage}
+                        buttonCount={targetCamera?.buttons.length}
+                    />
                 </div>
             )}
 
@@ -849,7 +1048,7 @@ function DevicesTab() {
                                     {!isMulti && (
                                         <Btn
                                             variant={addedKeys.has(singleKey) ? 'success' : 'default'}
-                                            onClick={() => quickAdd(device)}
+                                            onClick={() => openQuickAddEditor(device)}
                                             disabled={!targetCamId}
                                             className="text-xs px-2.5 py-1.5 shrink-0"
                                         >
@@ -898,7 +1097,7 @@ function DevicesTab() {
                                                     {/* 單獨加入此通道 */}
                                                     <Btn
                                                         variant={addedKeys.has(chKey) ? 'success' : 'default'}
-                                                        onClick={() => quickAdd(device, i)}
+                                                        onClick={() => openQuickAddEditor(device, i)}
                                                         disabled={!targetCamId}
                                                         className="text-xs px-2 py-1 shrink-0"
                                                     >
@@ -923,13 +1122,52 @@ function DevicesTab() {
 
 const TABS = [
     { id: 'cameras', label: '鏡頭管理', icon: Camera },
-    { id: 'buttons', label: '按鈕編輯器', icon: LayoutGrid },
-    { id: 'devices', label: 'iHost 設備', icon: Cpu },
+    { id: 'controls', label: '按鈕工作台', icon: LayoutGrid },
 ] as const;
 type TabId = typeof TABS[number]['id'];
 
+function ButtonStudio({
+    selectedCamId,
+    onSelectCamIdChange,
+}: {
+    selectedCamId: string;
+    onSelectCamIdChange: (cameraId: string) => void;
+}) {
+    return (
+        <div className="space-y-8">
+            <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h2 className="text-sm font-semibold text-slate-200">螢幕與按鈕編輯</h2>
+                        <p className="text-xs text-slate-500">直接在預覽畫面上拖曳和修改按鈕。</p>
+                    </div>
+                </div>
+                <ButtonEditor selectedCamId={selectedCamId} onSelectCamIdChange={onSelectCamIdChange} />
+            </section>
+
+            <section className="space-y-3">
+                <div>
+                    <h2 className="text-sm font-semibold text-slate-200">iHost 設備掃描與快速加入</h2>
+                    <p className="text-xs text-slate-500">掃描設備後可先改名稱，再直接加到上面選定的螢幕。</p>
+                </div>
+                <DevicesTab selectedCamId={selectedCamId} onSelectCamIdChange={onSelectCamIdChange} />
+            </section>
+        </div>
+    );
+}
+
 export default function AdminPage() {
     const [tab, setTab] = useState<TabId>('cameras');
+    const cameras = useConfigStore((state) => state.cameras);
+    const [selectedCamId, setSelectedCamId] = useState('');
+
+    useEffect(() => {
+        if (!selectedCamId && cameras[0]?.id) setSelectedCamId(cameras[0].id);
+        if (selectedCamId && !cameras.some((camera) => camera.id === selectedCamId)) {
+            setSelectedCamId(cameras[0]?.id ?? '');
+        }
+    }, [cameras, selectedCamId]);
+
     return (
         <div className="min-h-dvh flex flex-col">
             <ConfigLoader />
@@ -962,8 +1200,12 @@ export default function AdminPage() {
 
             <main className="flex-1 p-6 max-w-5xl mx-auto w-full">
                 {tab === 'cameras' && <CamerasTab />}
-                {tab === 'buttons' && <ButtonEditor />}
-                {tab === 'devices' && <DevicesTab />}
+                {tab === 'controls' && (
+                    <ButtonStudio
+                        selectedCamId={selectedCamId}
+                        onSelectCamIdChange={setSelectedCamId}
+                    />
+                )}
             </main>
         </div>
     );
