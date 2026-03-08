@@ -435,6 +435,9 @@ function PathBadge({
 
 interface CameraOverlayProps {
     config: CameraConfig;
+    minimalMode?: boolean;
+    fillViewport?: boolean;
+    refreshToken?: number;
 }
 
 type StreamMode = 'auto' | 'low-latency' | 'stable';
@@ -444,6 +447,20 @@ type CameraRoutePreference = 'global' | 'lan' | 'tailscale';
 const ROUTE_CACHE_KEY = 'ewelink_stream_route_cache_v1';
 const ROUTE_CACHE_TTL = 5 * 60 * 1000;
 const CAMERA_ROUTE_KEY = 'ewelink_camera_route_preferences_v1';
+
+function isPrivateIpv4(ip?: string) {
+    if (!ip) return false;
+    const match = ip.trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!match) return false;
+
+    const [a, b, c, d] = match.slice(1).map(Number);
+    if ([a, b, c, d].some((part) => part < 0 || part > 255)) return false;
+
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    return false;
+}
 
 function getRouteCache(): Record<string, { route: 'lan' | 'tailscale'; ts: number }> {
     if (typeof window === 'undefined') return {};
@@ -485,6 +502,7 @@ function shouldPreferHls(streamBaseUrl: string) {
 
     try {
         const { hostname } = new URL(streamBaseUrl);
+        if (isPrivateIpv4(hostname)) return false;
         if (hostname.endsWith('.ts.net')) return true;
         if (/^100\.\d+\.\d+\.\d+$/.test(hostname)) return true;
     } catch {
@@ -498,19 +516,20 @@ function makeStreamBaseUrl(ip?: string) {
     return ip ? `http://${ip}:8889` : '';
 }
 
-export function CameraOverlay({ config }: CameraOverlayProps) {
+export function CameraOverlay({ config, minimalMode = false, fillViewport = false, refreshToken = 0 }: CameraOverlayProps) {
     const hosts = useConfigStore((state) => state.hosts);
     const activeHost = config.streamHostId
         ? hosts.find((host) => host.id === config.streamHostId)
         : hosts[0];
+    const preferredLanIp = activeHost?.lanIp && isPrivateIpv4(activeHost.lanIp) ? activeHost.lanIp : undefined;
     const [routeMode, setRouteMode] = useState<RouteMode>('auto');
     const [cameraRoutePreference, setCameraRoutePreferenceState] = useState<CameraRoutePreference>('global');
-    const [selectedRoute, setSelectedRoute] = useState<'lan' | 'tailscale'>(() => activeHost?.lanIp ? 'lan' : 'tailscale');
+    const [selectedRoute, setSelectedRoute] = useState<'lan' | 'tailscale'>(() => preferredLanIp ? 'lan' : 'tailscale');
     const streamBaseUrl = activeHost
         ? makeStreamBaseUrl(
             selectedRoute === 'lan'
-                ? (activeHost.lanIp ?? activeHost.tailscaleIp ?? activeHost.ip)
-                : (activeHost.tailscaleIp ?? activeHost.ip ?? activeHost.lanIp)
+                ? (preferredLanIp ?? activeHost.tailscaleIp ?? activeHost.ip)
+                : (activeHost.tailscaleIp ?? activeHost.ip ?? preferredLanIp)
         )
         : (process.env.NEXT_PUBLIC_STREAM_BASE_URL ?? '');
     const whepUrl = `${streamBaseUrl}/${config.streamPath}/whep`;
@@ -530,6 +549,8 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
     const [showControls, setShowControls] = useState(false);
     const [tailscalePath, setTailscalePath] = useState<TailscalePathStatus>('idle');
     const [tailscaleLatencyMs, setTailscaleLatencyMs] = useState<number | null>(null);
+    const [playerNonce, setPlayerNonce] = useState(0);
+    const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
 
     // 從 LocalStorage 載入個人偏好
     useEffect(() => {
@@ -594,13 +615,19 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
             cameraRoutePreference === 'global' ? routeMode : cameraRoutePreference;
 
         const chooseFallback = () => {
-            if (effectiveRouteMode === 'lan') return setSelectedRoute(activeHost.lanIp ? 'lan' : 'tailscale');
+            if (effectiveRouteMode === 'lan') return setSelectedRoute(preferredLanIp ? 'lan' : 'tailscale');
             if (effectiveRouteMode === 'tailscale') return setSelectedRoute(activeHost.tailscaleIp ? 'tailscale' : 'lan');
-            return setSelectedRoute(activeHost.lanIp ? 'lan' : 'tailscale');
+            return setSelectedRoute(preferredLanIp ? 'lan' : 'tailscale');
         };
 
         if (effectiveRouteMode !== 'auto') {
             chooseFallback();
+            return;
+        }
+
+        if (preferredLanIp) {
+            setSelectedRoute('lan');
+            setRouteCache(activeHost.id, 'lan');
             return;
         }
 
@@ -610,7 +637,7 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
             return;
         }
 
-        if (!activeHost.lanIp) {
+        if (!preferredLanIp) {
             setSelectedRoute('tailscale');
             setRouteCache(activeHost.id, 'tailscale');
             return;
@@ -619,7 +646,7 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
         let alive = true;
         const controller = new AbortController();
         const timeoutId = window.setTimeout(() => controller.abort(), 1200);
-        const probeUrl = `http://${activeHost.lanIp}:8888/${config.streamPath}/index.m3u8?ts=${Date.now()}`;
+        const probeUrl = `http://${preferredLanIp}:8888/${config.streamPath}/index.m3u8?ts=${Date.now()}`;
 
         fetch(probeUrl, {
             method: 'GET',
@@ -644,13 +671,16 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
             controller.abort();
             window.clearTimeout(timeoutId);
         };
-    }, [activeHost, config.streamPath, routeMode, cameraRoutePreference]);
+    }, [activeHost, preferredLanIp, config.streamPath, routeMode, cameraRoutePreference]);
 
     const handleStreamStatus = useCallback((status: 'connecting' | 'live' | 'error' | 'stale') => {
         if (playbackMode === 'whep' && status === 'error' && hlsUrl) {
             setPlaybackMode('hls');
             setStreamStatus('connecting');
             return;
+        }
+        if (status === 'live' || status === 'error' || status === 'stale') {
+            setIsSilentRefreshing(false);
         }
         setStreamStatus(status);
     }, [playbackMode, hlsUrl]);
@@ -667,6 +697,13 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
         setPlaybackMode(preferredMode);
         setStreamStatus('connecting');
     }, [streamBaseUrl, whepUrl, hlsUrl, streamMode]);
+
+    useEffect(() => {
+        if (refreshToken === 0) return;
+        setIsSilentRefreshing(true);
+        setStreamStatus('connecting');
+        setPlayerNonce((value) => value + 1);
+    }, [refreshToken]);
 
     useEffect(() => {
         if (!activeHost) {
@@ -711,9 +748,20 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
     }, [activeHost, selectedRoute]);
 
     return (
-        <div id={`camera-${config.id}`} className="flex w-full flex-col gap-3">
+        <div
+            id={`camera-${config.id}`}
+            className={clsx(
+                'flex w-full flex-col',
+                minimalMode
+                    ? fillViewport
+                        ? 'h-dvh gap-0 bg-black'
+                        : 'gap-px bg-black'
+                    : 'gap-3'
+            )}
+        >
             <style>{KEYFRAMES}</style>
 
+            {!minimalMode && (
             <div className="flex items-center justify-between gap-3 px-1">
                 <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                     <div className="min-w-0 rounded-full border border-white/10 bg-white/[0.06] px-4 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-md">
@@ -740,8 +788,9 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
                     <Settings size={16} />
                 </button>
             </div>
+            )}
 
-            {showControls && (
+            {!minimalMode && showControls && (
                 <div className="flex items-start gap-4 rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 shadow-2xl backdrop-blur-2xl animate-in fade-in zoom-in duration-200">
                     <div className="min-w-0 flex-1 space-y-3">
                         <div className="flex flex-col gap-2">
@@ -803,16 +852,23 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
             )}
 
             <div
-                className="relative w-full overflow-hidden rounded-2xl bg-[#0a0a0a] shadow-2xl group/camera [container-type:inline-size]"
-                style={{ aspectRatio: '16/9' }}
+                className={clsx(
+                    'relative w-full overflow-hidden bg-[#0a0a0a] group/camera [container-type:inline-size]',
+                    minimalMode
+                        ? fillViewport
+                            ? 'h-full rounded-none shadow-none'
+                            : 'rounded-none shadow-none'
+                        : 'rounded-2xl shadow-2xl'
+                )}
+                style={fillViewport ? undefined : { aspectRatio: '16/9' }}
             >
                 {playbackMode === 'whep' ? (
-                    <WhepPlayer whepUrl={whepUrl} onStatusChange={handleStreamStatus} />
+                    <WhepPlayer key={`whep-${playerNonce}`} whepUrl={whepUrl} onStatusChange={handleStreamStatus} />
                 ) : (
-                    <HlsPlayer hlsUrl={hlsUrl} onStatusChange={setStreamStatus} />
+                    <HlsPlayer key={`hls-${playerNonce}`} hlsUrl={hlsUrl} onStatusChange={handleStreamStatus} />
                 )}
 
-                {streamStatus !== 'live' && (
+                {streamStatus !== 'live' && !isSilentRefreshing && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-xl z-10 gap-4">
                         {streamStatus === 'connecting' ? (
                             <Loader2 size={40} className="text-indigo-500 animate-spin opacity-50" />
@@ -834,8 +890,12 @@ export function CameraOverlay({ config }: CameraOverlayProps) {
                 </div>
 
                 {/* 裝飾性漸層 */}
-                <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/60 to-transparent pointer-events-none z-10" />
-                <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/60 to-transparent pointer-events-none z-10" />
+                {!minimalMode && (
+                    <>
+                        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/60 to-transparent pointer-events-none z-10" />
+                        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/60 to-transparent pointer-events-none z-10" />
+                    </>
+                )}
             </div>
         </div>
     );
