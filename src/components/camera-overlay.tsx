@@ -200,10 +200,14 @@ function OverlayBtn({ button, globalScale }: OverlayButtonProps) {
     const [isPending, startTransition] = useTransition();
     const [feedback, setFeedback] = useState<'idle' | 'ok' | 'err'>('idle');
     const [isOn, setIsOn] = useState<boolean | null>(null);
+    const [isDeviceOnline, setIsDeviceOnline] = useState<boolean | null>(null);
 
     const syncState = useCallback(async () => {
         const result = await fetchDeviceStateAction(button.deviceId, button.hostId);
-        if (result.success && result.state) {
+        if (result.success) {
+            setIsDeviceOnline(result.online);
+        }
+        if (result.success && result.online && result.state) {
             const s = result.state as Record<string, any>;
             let on: boolean;
             if (button.outlet !== undefined) {
@@ -213,6 +217,13 @@ function OverlayBtn({ button, globalScale }: OverlayButtonProps) {
             }
             setIsOn(on);
             return on;
+        }
+        if (result.success && !result.online) {
+            setIsOn(null);
+        }
+        if (!result.success && result.error.includes('offline')) {
+            setIsDeviceOnline(false);
+            setIsOn(null);
         }
         return false;
     }, [button.deviceId, button.outlet, button.hostId]);
@@ -224,6 +235,11 @@ function OverlayBtn({ button, globalScale }: OverlayButtonProps) {
     }, [syncState]);
 
     const handleClick = useCallback(() => {
+        if (isDeviceOnline === false) {
+            setFeedback('err');
+            setTimeout(() => setFeedback('idle'), 1200);
+            return;
+        }
         startTransition(async () => {
             const result = await triggerSwitchAction(button.deviceId, button.action, button.outlet, button.hostId);
             if (result.success) {
@@ -233,6 +249,10 @@ function OverlayBtn({ button, globalScale }: OverlayButtonProps) {
                 else setIsOn(p => !p);
             } else {
                 setFeedback('err');
+                if (result.error.includes('offline')) {
+                    setIsDeviceOnline(false);
+                    setIsOn(null);
+                }
             }
             setTimeout(() => setFeedback('idle'), 800);
 
@@ -242,7 +262,7 @@ function OverlayBtn({ button, globalScale }: OverlayButtonProps) {
             await new Promise(r => setTimeout(r, 1200));
             await syncState();
         });
-    }, [button.deviceId, button.action, button.outlet, button.hostId, syncState]);
+    }, [button.deviceId, button.action, button.outlet, button.hostId, isDeviceOnline, syncState]);
 
     return (
         <OverlayButtonView
@@ -250,6 +270,8 @@ function OverlayBtn({ button, globalScale }: OverlayButtonProps) {
             globalScale={globalScale}
             isOn={isOn}
             isPending={isPending}
+            disabled={isDeviceOnline === false}
+            title={isDeviceOnline === false ? '設備目前離線，iHost 不會執行此按鈕控制。' : undefined}
             feedback={feedback}
             onClick={handleClick}
         />
@@ -315,87 +337,12 @@ function StatusBadge({ status, inline = false }: { status: 'connecting' | 'live'
     );
 }
 
-function RouteBadge({ route }: { route: 'lan' | 'tailscale' }) {
+function PathBadge({ inline = false }: { inline?: boolean }) {
     return (
         <div
             className={clsx(
-                'absolute z-20 flex items-center font-bold backdrop-blur-md border text-white/90',
-                route === 'lan'
-                    ? 'bg-emerald-500/15 border-emerald-400/30'
-                    : 'bg-cyan-500/15 border-cyan-400/30'
-            )}
-            style={{
-                top: '1.5cqw',
-                right: '1.5cqw',
-                gap: '0.7cqw',
-                paddingLeft: '1cqw',
-                paddingRight: '1cqw',
-                paddingTop: '0.5cqw',
-                paddingBottom: '0.5cqw',
-                borderRadius: '10cqw',
-                fontSize: '0.9cqw',
-            }}
-        >
-            <span
-                className={clsx(
-                    'inline-block rounded-full',
-                    route === 'lan' ? 'bg-emerald-400' : 'bg-cyan-400'
-                )}
-                style={{ width: '0.7cqw', height: '0.7cqw' }}
-            />
-            <span>{route === 'lan' ? 'LAN' : 'TAILSCALE'}</span>
-        </div>
-    );
-}
-
-type TailscalePathStatus = 'idle' | 'checking' | 'direct' | 'relay' | 'unknown';
-
-function PathBadge({
-    route,
-    tailscalePath,
-    latencyMs,
-    inline = false,
-}: {
-    route: 'lan' | 'tailscale';
-    tailscalePath: TailscalePathStatus;
-    latencyMs: number | null;
-    inline?: boolean;
-}) {
-    if (route === 'lan') {
-        if (!inline) return <RouteBadge route="lan" />;
-        return (
-            <div
-                className="flex items-center rounded-full border border-emerald-400/30 bg-emerald-500/15 font-bold text-white/90"
-                style={{
-                    gap: 'clamp(0.3rem, 0.8vw, 0.45rem)',
-                    paddingLeft: 'clamp(0.55rem, 1vw, 0.7rem)',
-                    paddingRight: 'clamp(0.55rem, 1vw, 0.7rem)',
-                    paddingTop: 'clamp(0.28rem, 0.7vw, 0.35rem)',
-                    paddingBottom: 'clamp(0.28rem, 0.7vw, 0.35rem)',
-                    fontSize: 'clamp(0.68rem, 1.2vw, 0.82rem)',
-                }}
-            >
-                <span className="inline-block rounded-full bg-emerald-400" style={{ width: 'clamp(0.5rem, 1vw, 0.7rem)', height: 'clamp(0.5rem, 1vw, 0.7rem)' }} />
-                <span>LAN</span>
-            </div>
-        );
-    }
-
-    const label = tailscalePath === 'relay'
-        ? 'RELAY'
-        : tailscalePath === 'direct'
-            ? 'DIRECT'
-            : 'TAILSCALE';
-    const latencyLabel = latencyMs !== null ? `${latencyMs}ms` : null;
-
-    return (
-        <div
-            className={clsx(
-                'flex items-center font-bold backdrop-blur-md border text-white/90',
-                !inline && 'absolute z-20',
-                tailscalePath === 'relay'
-                    ? 'bg-amber-500/15 border-amber-400/30'
-                    : 'bg-cyan-500/15 border-cyan-400/30'
+                'border border-emerald-400/30 bg-emerald-500/15 font-bold text-white/90 backdrop-blur-md',
+                inline ? 'flex items-center rounded-full' : 'absolute right-[1.5cqw] top-[1.5cqw] z-20 flex items-center rounded-[10cqw]'
             )}
             style={inline ? {
                 gap: 'clamp(0.3rem, 0.8vw, 0.45rem)',
@@ -403,30 +350,21 @@ function PathBadge({
                 paddingRight: 'clamp(0.55rem, 1vw, 0.7rem)',
                 paddingTop: 'clamp(0.28rem, 0.7vw, 0.35rem)',
                 paddingBottom: 'clamp(0.28rem, 0.7vw, 0.35rem)',
-                borderRadius: '999px',
                 fontSize: 'clamp(0.68rem, 1.2vw, 0.82rem)',
             } : {
-                top: '1.5cqw',
-                right: '1.5cqw',
                 gap: '0.7cqw',
                 paddingLeft: '1cqw',
                 paddingRight: '1cqw',
                 paddingTop: '0.5cqw',
                 paddingBottom: '0.5cqw',
-                borderRadius: '10cqw',
                 fontSize: '0.9cqw',
             }}
-            title="Tailscale 路徑狀態由目前執行此頁面的主機進行探測"
         >
             <span
-                className={clsx(
-                    'inline-block rounded-full',
-                    tailscalePath === 'relay' ? 'bg-amber-400' : 'bg-cyan-400'
-                )}
+                className="inline-block rounded-full bg-emerald-400"
                 style={inline ? { width: 'clamp(0.5rem, 1vw, 0.7rem)', height: 'clamp(0.5rem, 1vw, 0.7rem)' } : { width: '0.7cqw', height: '0.7cqw' }}
             />
-            <span>{label}</span>
-            {latencyLabel && <span className="text-white/65">{latencyLabel}</span>}
+            <span>LAN</span>
         </div>
     );
 }
@@ -441,12 +379,6 @@ interface CameraOverlayProps {
 }
 
 type StreamMode = 'auto' | 'low-latency' | 'stable';
-type RouteMode = 'auto' | 'lan' | 'tailscale';
-type CameraRoutePreference = 'global' | 'lan' | 'tailscale';
-
-const ROUTE_CACHE_KEY = 'ewelink_stream_route_cache_v1';
-const ROUTE_CACHE_TTL = 5 * 60 * 1000;
-const CAMERA_ROUTE_KEY = 'ewelink_camera_route_preferences_v1';
 
 function isPrivateIpv4(ip?: string) {
     if (!ip) return false;
@@ -460,41 +392,6 @@ function isPrivateIpv4(ip?: string) {
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
     return false;
-}
-
-function getRouteCache(): Record<string, { route: 'lan' | 'tailscale'; ts: number }> {
-    if (typeof window === 'undefined') return {};
-    try {
-        const raw = localStorage.getItem(ROUTE_CACHE_KEY);
-        return raw ? JSON.parse(raw) : {};
-    } catch {
-        return {};
-    }
-}
-
-function setRouteCache(hostId: string, route: 'lan' | 'tailscale') {
-    if (typeof window === 'undefined') return;
-    const cache = getRouteCache();
-    cache[hostId] = { route, ts: Date.now() };
-    localStorage.setItem(ROUTE_CACHE_KEY, JSON.stringify(cache));
-}
-
-function getCameraRoutePreferences(): Record<string, CameraRoutePreference> {
-    if (typeof window === 'undefined') return {};
-    try {
-        const raw = localStorage.getItem(CAMERA_ROUTE_KEY);
-        return raw ? JSON.parse(raw) : {};
-    } catch {
-        return {};
-    }
-}
-
-function setCameraRoutePreference(cameraId: string, preference: CameraRoutePreference) {
-    if (typeof window === 'undefined') return;
-    const prefs = getCameraRoutePreferences();
-    if (preference === 'global') delete prefs[cameraId];
-    else prefs[cameraId] = preference;
-    localStorage.setItem(CAMERA_ROUTE_KEY, JSON.stringify(prefs));
 }
 
 function shouldPreferHls(streamBaseUrl: string) {
@@ -521,17 +418,8 @@ export function CameraOverlay({ config, minimalMode = false, fillViewport = fals
     const activeHost = config.streamHostId
         ? hosts.find((host) => host.id === config.streamHostId)
         : hosts[0];
-    const preferredLanIp = activeHost?.lanIp && isPrivateIpv4(activeHost.lanIp) ? activeHost.lanIp : undefined;
-    const [routeMode, setRouteMode] = useState<RouteMode>('auto');
-    const [cameraRoutePreference, setCameraRoutePreferenceState] = useState<CameraRoutePreference>('global');
-    const [selectedRoute, setSelectedRoute] = useState<'lan' | 'tailscale'>(() => preferredLanIp ? 'lan' : 'tailscale');
-    const streamBaseUrl = activeHost
-        ? makeStreamBaseUrl(
-            selectedRoute === 'lan'
-                ? (preferredLanIp ?? activeHost.tailscaleIp ?? activeHost.ip)
-                : (activeHost.tailscaleIp ?? activeHost.ip ?? preferredLanIp)
-        )
-        : (process.env.NEXT_PUBLIC_STREAM_BASE_URL ?? '');
+    const streamIp = activeHost?.lanIp ?? activeHost?.ip;
+    const streamBaseUrl = activeHost ? makeStreamBaseUrl(streamIp) : (process.env.NEXT_PUBLIC_STREAM_BASE_URL ?? '');
     const whepUrl = `${streamBaseUrl}/${config.streamPath}/whep`;
     const hlsUrl = (() => {
         if (!streamBaseUrl) return '';
@@ -547,8 +435,6 @@ export function CameraOverlay({ config, minimalMode = false, fillViewport = fals
     );
     const [localGlobalScale, setLocalGlobalScale] = useState(1);
     const [showControls, setShowControls] = useState(false);
-    const [tailscalePath, setTailscalePath] = useState<TailscalePathStatus>('idle');
-    const [tailscaleLatencyMs, setTailscaleLatencyMs] = useState<number | null>(null);
     const [playerNonce, setPlayerNonce] = useState(0);
     const [isSilentRefreshing, setIsSilentRefreshing] = useState(false);
 
@@ -578,100 +464,6 @@ export function CameraOverlay({ config, minimalMode = false, fillViewport = fals
         window.addEventListener('ewelink-stream-mode-changed', applyMode);
         return () => window.removeEventListener('ewelink-stream-mode-changed', applyMode);
     }, []);
-
-    useEffect(() => {
-        const applyRouteMode = () => {
-            const saved = localStorage.getItem('ewelink_stream_route_mode');
-            if (saved === 'auto' || saved === 'lan' || saved === 'tailscale') {
-                setRouteMode(saved);
-            } else {
-                setRouteMode('auto');
-            }
-        };
-
-        applyRouteMode();
-        window.addEventListener('ewelink-stream-route-mode-changed', applyRouteMode);
-        return () => window.removeEventListener('ewelink-stream-route-mode-changed', applyRouteMode);
-    }, []);
-
-    useEffect(() => {
-        const applyCameraRoutePreference = () => {
-            const saved = getCameraRoutePreferences()[config.id];
-            if (saved === 'lan' || saved === 'tailscale') {
-                setCameraRoutePreferenceState(saved);
-            } else {
-                setCameraRoutePreferenceState('global');
-            }
-        };
-
-        applyCameraRoutePreference();
-        window.addEventListener('ewelink-camera-route-preference-changed', applyCameraRoutePreference);
-        return () => window.removeEventListener('ewelink-camera-route-preference-changed', applyCameraRoutePreference);
-    }, [config.id]);
-
-    useEffect(() => {
-        if (!activeHost) return;
-        const effectiveRouteMode: RouteMode =
-            cameraRoutePreference === 'global' ? routeMode : cameraRoutePreference;
-
-        const chooseFallback = () => {
-            if (effectiveRouteMode === 'lan') return setSelectedRoute(preferredLanIp ? 'lan' : 'tailscale');
-            if (effectiveRouteMode === 'tailscale') return setSelectedRoute(activeHost.tailscaleIp ? 'tailscale' : 'lan');
-            return setSelectedRoute(preferredLanIp ? 'lan' : 'tailscale');
-        };
-
-        if (effectiveRouteMode !== 'auto') {
-            chooseFallback();
-            return;
-        }
-
-        if (preferredLanIp) {
-            setSelectedRoute('lan');
-            setRouteCache(activeHost.id, 'lan');
-            return;
-        }
-
-        const cache = getRouteCache()[activeHost.id];
-        if (cache && Date.now() - cache.ts < ROUTE_CACHE_TTL) {
-            setSelectedRoute(cache.route);
-            return;
-        }
-
-        if (!preferredLanIp) {
-            setSelectedRoute('tailscale');
-            setRouteCache(activeHost.id, 'tailscale');
-            return;
-        }
-
-        let alive = true;
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), 1200);
-        const probeUrl = `http://${preferredLanIp}:8888/${config.streamPath}/index.m3u8?ts=${Date.now()}`;
-
-        fetch(probeUrl, {
-            method: 'GET',
-            mode: 'no-cors',
-            cache: 'no-store',
-            signal: controller.signal,
-        })
-            .then(() => {
-                if (!alive) return;
-                setSelectedRoute('lan');
-                setRouteCache(activeHost.id, 'lan');
-            })
-            .catch(() => {
-                if (!alive) return;
-                setSelectedRoute('tailscale');
-                setRouteCache(activeHost.id, 'tailscale');
-            })
-            .finally(() => window.clearTimeout(timeoutId));
-
-        return () => {
-            alive = false;
-            controller.abort();
-            window.clearTimeout(timeoutId);
-        };
-    }, [activeHost, preferredLanIp, config.streamPath, routeMode, cameraRoutePreference]);
 
     const handleStreamStatus = useCallback((status: 'connecting' | 'live' | 'error' | 'stale') => {
         if (playbackMode === 'whep' && status === 'error' && hlsUrl) {
@@ -705,48 +497,6 @@ export function CameraOverlay({ config, minimalMode = false, fillViewport = fals
         setPlayerNonce((value) => value + 1);
     }, [refreshToken]);
 
-    useEffect(() => {
-        if (!activeHost) {
-            setTailscalePath('unknown');
-            setTailscaleLatencyMs(null);
-            return;
-        }
-
-        if (selectedRoute === 'lan') {
-            setTailscalePath('idle');
-            setTailscaleLatencyMs(null);
-            return;
-        }
-
-        let alive = true;
-        const controller = new AbortController();
-        setTailscalePath('checking');
-
-        fetch(`/api/tailscale-path?hostId=${encodeURIComponent(activeHost.id)}`, {
-            cache: 'no-store',
-            signal: controller.signal,
-        })
-            .then(async (res) => {
-                if (!res.ok) throw new Error(`Probe failed: ${res.status}`);
-                return res.json() as Promise<{ status?: TailscalePathStatus; latencyMs?: number | null }>;
-            })
-            .then((data) => {
-                if (!alive) return;
-                setTailscalePath(data.status === 'direct' || data.status === 'relay' ? data.status : 'unknown');
-                setTailscaleLatencyMs(typeof data.latencyMs === 'number' ? data.latencyMs : null);
-            })
-            .catch(() => {
-                if (!alive) return;
-                setTailscalePath('unknown');
-                setTailscaleLatencyMs(null);
-            });
-
-        return () => {
-            alive = false;
-            controller.abort();
-        };
-    }, [activeHost, selectedRoute]);
-
     return (
         <div
             id={`camera-${config.id}`}
@@ -771,7 +521,7 @@ export function CameraOverlay({ config, minimalMode = false, fillViewport = fals
                     </div>
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <StatusBadge status={streamStatus} inline />
-                        <PathBadge route={selectedRoute} tailscalePath={tailscalePath} latencyMs={tailscaleLatencyMs} inline />
+                        <PathBadge inline />
                     </div>
                 </div>
 
@@ -806,40 +556,6 @@ export function CameraOverlay({ config, minimalMode = false, fillViewport = fals
                             />
                         </div>
 
-                        <div className="flex flex-col gap-2 border-t border-white/10 pt-3">
-                            <div className="flex justify-between items-center gap-4">
-                                <span className="text-[10px] text-white/60 font-bold uppercase tracking-widest">串流路徑</span>
-                                <span className="text-[10px] text-white/40 text-right">
-                                    {cameraRoutePreference === 'global'
-                                        ? `跟隨全域 (${routeMode === 'auto' ? 'Auto' : routeMode.toUpperCase()})`
-                                        : `固定 ${cameraRoutePreference.toUpperCase()}`}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-3 gap-1">
-                                {([
-                                    ['global', '跟隨'],
-                                    ['lan', 'LAN'],
-                                    ['tailscale', 'VPN'],
-                                ] as const).map(([mode, label]) => (
-                                    <button
-                                        key={mode}
-                                        onClick={() => {
-                                            setCameraRoutePreferenceState(mode);
-                                            setCameraRoutePreference(config.id, mode);
-                                            window.dispatchEvent(new Event('ewelink-camera-route-preference-changed'));
-                                        }}
-                                        className={clsx(
-                                            'px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all border',
-                                            cameraRoutePreference === mode
-                                                ? 'bg-cyan-600/90 border-cyan-400 text-white'
-                                                : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80 hover:bg-white/10'
-                                        )}
-                                    >
-                                        {label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
                     </div>
 
                     <button

@@ -119,6 +119,14 @@ export async function getDevices(host?: { ip: string, token: string }): Promise<
   return json.data.device_list;
 }
 
+/** 取得單一設備資訊 */
+export async function getDevice(deviceId: string, host?: { ip: string, token: string }): Promise<IHostDevice> {
+  const res = await fetchIHost(`/devices/${deviceId}`, {}, host);
+  const json: IHostApiResponse<IHostDevice> = await res.json();
+  if (json.error !== 0) throw new Error(json.message);
+  return json.data;
+}
+
 /**
  * 切換開關設備
  * @param deviceId  iHost 設備 ID
@@ -185,9 +193,6 @@ export async function setSwitch(
 
 /** 取得單一設備狀態 */
 export async function getDeviceState(deviceId: string, host?: { ip: string, token: string }) {
-  const res = await fetchIHost(`/devices/${deviceId}`, {}, host);
-  const json: IHostApiResponse<{ state: Record<string, unknown> }> =
-    await res.json();
-  if (json.error !== 0) throw new Error(json.message);
-  return json.data.state;
+  const device = await getDevice(deviceId, host);
+  return device.state;
 }

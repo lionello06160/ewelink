@@ -1,6 +1,6 @@
 'use server';
 
-import { setSwitch, getDevices, getDeviceState } from '@/lib/ihost-api';
+import { setSwitch, getDevice, getDevices } from '@/lib/ihost-api';
 function getHostEnvConfig(hostId?: string): { ip: string, token: string } | undefined {
     if (!hostId || hostId === 'default' || hostId === '') {
         if (process.env.IHOST_IP && process.env.IHOST_ACCESS_TOKEN) {
@@ -70,13 +70,14 @@ export async function fetchDevicesAction(hostId?: string) {
 export async function fetchDeviceStateAction(deviceId: string, hostId?: string) {
     try {
         const host = getHostEnvConfig(hostId);
-        const state = await getDeviceState(deviceId, host);
-        return { success: true as const, state };
+        const device = await getDevice(deviceId, host);
+        return { success: true as const, state: device.state, online: device.online };
     } catch (err) {
         return {
             success: false as const,
             error: err instanceof Error ? err.message : '未知錯誤',
             state: null,
+            online: false,
         };
     }
 }

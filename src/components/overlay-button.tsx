@@ -23,6 +23,8 @@ interface OverlayButtonViewProps {
     globalScale?: number;
     isOn?: boolean | null;
     isPending?: boolean;
+    disabled?: boolean;
+    title?: string;
     feedback?: 'idle' | 'ok' | 'err';
     showGrip?: boolean;
     selected?: boolean;
@@ -36,6 +38,8 @@ export function OverlayButtonView({
     globalScale = 1,
     isOn = false,
     isPending = false,
+    disabled = false,
+    title,
     feedback = 'idle',
     showGrip = false,
     selected = false,
@@ -52,7 +56,8 @@ export function OverlayButtonView({
             type="button"
             onClick={onClick}
             onPointerDown={onPointerDown}
-            disabled={isPending}
+            disabled={isPending || disabled}
+            title={title}
             style={{
                 position: 'absolute',
                 left: `${button.x}%`,
@@ -70,7 +75,7 @@ export function OverlayButtonView({
             className={clsx(
                 'group flex items-center justify-center select-none shadow-xl',
                 !readOnly && 'active:scale-95 transition-transform',
-                isPending && 'opacity-50 cursor-not-allowed',
+                (isPending || disabled) && 'opacity-50 cursor-not-allowed',
                 !isOn && 'bg-white/[0.03] backdrop-blur-md border border-white/5',
                 isOn && 'shadow-[0_0_6cqw_-2cqw_rgba(0,0,0,0.6)]',
                 feedback === 'err' && '!bg-red-600 !border-red-400',

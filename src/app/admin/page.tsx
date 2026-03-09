@@ -116,6 +116,8 @@ function CamerasTab() {
     const [streamPath, setStreamPath] = useState('');
     const [streamHostId, setStreamHostId] = useState('');
     const [bgImage, setBgImage] = useState('');
+    const hasMultipleHosts = hosts.length > 1;
+    const defaultHostName = hosts[0]?.name ?? '預設主機';
 
     const selectedHost = hosts.find((host) => host.id === streamHostId) ?? hosts[0];
     const previewStreamBaseUrl = selectedHost
@@ -224,12 +226,18 @@ function CamerasTab() {
                 <Modal title={modal === 'add' ? '新增攝影機' : '編輯攝影機'} onClose={() => setModal(null)}>
                     <Input label="攝影機名稱" placeholder="例：大門攝影機" value={name} onChange={(e) => setName(e.target.value)} id="camera-name-input" />
                     <Input label="mediamtx 串流路徑" placeholder="例：cam-b1p" value={streamPath} onChange={(e) => setStreamPath(e.target.value)} id="camera-stream-input" />
-                    <Select label="串流來源 iHost" value={streamHostId} onChange={(e) => setStreamHostId(e.target.value)}>
-                        <option value="">預設主機 (.env.local)</option>
-                        {hosts.filter((host) => host.id !== 'default').map((host) => (
-                            <option key={host.id} value={host.id}>{host.name} ({host.ip})</option>
-                        ))}
-                    </Select>
+                    {hasMultipleHosts ? (
+                        <Select label="串流來源 iHost" value={streamHostId} onChange={(e) => setStreamHostId(e.target.value)}>
+                            <option value="">預設主機 (.env.local)</option>
+                            {hosts.filter((host) => host.id !== 'default').map((host) => (
+                                <option key={host.id} value={host.id}>{host.name} ({host.ip})</option>
+                            ))}
+                        </Select>
+                    ) : (
+                        <div className="rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm text-slate-300">
+                            串流來源 iHost：{defaultHostName}
+                        </div>
+                    )}
                     <Input label="編輯背景圖 URL (建議截圖攝影機畫面)" placeholder="http://... 或 data:image/..." value={bgImage} onChange={(e) => setBgImage(e.target.value)} id="camera-bg-input" />
                     <p className="text-[10px] text-slate-500 italic">
                         提示：您可以先到首頁截一張 16:9 的圖，然後將圖片網址或是 Base64 貼在這裡。
@@ -395,6 +403,8 @@ function ButtonEditor({
     const draggingId = useRef<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const cam = cameras.find((c) => c.id === selectedCamId);
+    const hasMultipleHosts = hosts.length > 1;
+    const defaultHostName = hosts[0]?.name ?? '預設主機';
     const streamHost = hosts.find((host) => host.id === (cam?.streamHostId ?? 'default')) ?? hosts[0];
     const streamBaseUrl = streamHost
         ? `http://${streamHost.ip}:8889`
@@ -649,14 +659,22 @@ function ButtonEditor({
                                         <Input label="按鈕名稱" placeholder="例：大門" value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} id="btn-label-input" />
                                         <Input label="序號 (SN)" placeholder="serial_number" value={form.deviceId} onChange={(e) => setForm((f) => ({ ...f, deviceId: e.target.value }))} id="btn-device-input" />
                                     </div>
-                                    <Select
-                                        label="所屬 iHost"
-                                        value={form.hostId || ''}
-                                        onChange={(e) => setForm((f) => ({ ...f, hostId: e.target.value || undefined }))}
-                                    >
-                                        <option value="">預設主機 (.env.local)</option>
-                                        {hosts.map(h => <option key={h.id} value={h.id}>{h.name} ({h.ip})</option>)}
-                                    </Select>
+                                    {hasMultipleHosts ? (
+                                        <Select
+                                            label="所屬 iHost"
+                                            value={form.hostId || ''}
+                                            onChange={(e) => setForm((f) => ({ ...f, hostId: e.target.value || undefined }))}
+                                        >
+                                            <option value="">預設主機 (.env.local)</option>
+                                            {hosts
+                                                .filter((host) => host.id !== 'default')
+                                                .map((host) => <option key={host.id} value={host.id}>{host.name} ({host.ip})</option>)}
+                                        </Select>
+                                    ) : (
+                                        <div className="rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm text-slate-300">
+                                            所屬 iHost：{defaultHostName}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* 2. 按鈕縮放 */}
@@ -753,9 +771,25 @@ function DevicesTab({
     const [isPending, startTransition] = useTransition();
     const [activeHostId, setActiveHostId] = useState<string>('');
     const [draftButton, setDraftButton] = useState<Omit<OverlayButton, 'id'> | null>(null);
+    const [deviceFilter, setDeviceFilter] = useState('');
+    const hasMultipleHosts = hosts.length > 1;
+    const defaultHostName = hosts[0]?.name ?? '預設主機';
 
     const targetCamId = selectedCamId;
     const targetCamera = cameras.find((camera) => camera.id === targetCamId);
+    const normalizedDeviceFilter = deviceFilter.trim().toLowerCase();
+    const filteredDevices = devices.filter((device) => {
+        if (!normalizedDeviceFilter) return true;
+        const searchable = [
+            device.name,
+            device.serial_number,
+            device.display_category,
+        ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+        return searchable.includes(normalizedDeviceFilter);
+    });
 
     // 切換目標攝影機時，重置「已加入」紀錄，避免按鈕殘留「已加入」狀態
     useEffect(() => {
@@ -922,20 +956,42 @@ function DevicesTab({
             )}
 
             <div className="flex items-center gap-4 flex-wrap bg-slate-900/40 p-3 rounded-xl border border-white/5">
-                <div className="flex-1 min-w-[200px] flex items-center gap-3">
-                    <span className="text-slate-400 text-xs font-semibold whitespace-nowrap">掃描來源：</span>
-                    <select
-                        value={activeHostId}
-                        onChange={(e) => {
-                            setActiveHostId(e.target.value);
-                            setStatus('idle');
-                            setDevices([]);
-                        }}
-                        className="flex-1 max-w-[200px] bg-slate-950/50 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500/50"
-                    >
-                        <option value="">預設主機 (.env.local)</option>
-                        {hosts.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-                    </select>
+                {hasMultipleHosts ? (
+                    <div className="flex-1 min-w-[200px] flex items-center gap-3">
+                        <span className="text-slate-400 text-xs font-semibold whitespace-nowrap">掃描來源：</span>
+                        <select
+                            value={activeHostId}
+                            onChange={(e) => {
+                                setActiveHostId(e.target.value);
+                                setStatus('idle');
+                                setDevices([]);
+                            }}
+                            className="flex-1 max-w-[200px] bg-slate-950/50 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-indigo-300 focus:outline-none focus:border-indigo-500/50"
+                        >
+                            <option value="">預設主機 (.env.local)</option>
+                            {hosts
+                                .filter((host) => host.id !== 'default')
+                                .map((host) => <option key={host.id} value={host.id}>{host.name}</option>)}
+                        </select>
+                    </div>
+                ) : (
+                    <div className="flex-1 min-w-[200px] flex items-center gap-3">
+                        <span className="text-slate-400 text-xs font-semibold whitespace-nowrap">掃描來源：</span>
+                        <div className="rounded-lg border border-white/10 bg-slate-950/50 px-3 py-1.5 text-xs text-indigo-300">
+                            {defaultHostName}
+                        </div>
+                    </div>
+                )}
+
+                <div className="flex-1 min-w-[220px] flex items-center gap-3">
+                    <span className="text-slate-400 text-xs font-semibold whitespace-nowrap">文字篩選：</span>
+                    <input
+                        type="text"
+                        value={deviceFilter}
+                        onChange={(e) => setDeviceFilter(e.target.value)}
+                        placeholder="輸入設備名稱或序號"
+                        className="flex-1 bg-slate-950/50 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50"
+                    />
                 </div>
 
                 <Btn variant="primary" onClick={refresh} disabled={isPending} id="refresh-devices-btn" className="ml-auto px-4">
@@ -992,10 +1048,16 @@ function DevicesTab({
                 <div className="space-y-3">
                     <p className="text-xs text-emerald-400 flex items-center gap-1.5">
                         <CheckCircle2 size={12} />
-                        找到 {devices.length} 台設備
+                        顯示 {filteredDevices.length} / {devices.length} 台設備
                     </p>
 
-                    {devices.map((device) => {
+                    {filteredDevices.length === 0 && (
+                        <div className="rounded-xl border border-dashed border-white/10 bg-slate-900/30 px-4 py-8 text-center text-xs text-slate-500">
+                            沒有符合篩選條件的設備
+                        </div>
+                    )}
+
+                    {filteredDevices.map((device) => {
                         const d = device;
                         const chCount = getChannelCount(device);
                         const chStates = getChannelStates(device);

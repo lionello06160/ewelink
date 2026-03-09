@@ -11,7 +11,6 @@ import { ConfigLoader } from '@/components/config-loader';
 
 type ColumnMode = 'auto' | 1 | 2 | 3 | 4;
 type StreamMode = 'auto' | 'low-latency' | 'stable';
-type RouteMode = 'auto' | 'lan' | 'tailscale';
 type RefreshInterval = 0 | 5 | 10 | 30 | 60;
 
 function getAutoColumnCount(width: number) {
@@ -51,7 +50,6 @@ export default function HomePage() {
   const settings = useConfigStore((s) => s.settings);
   const [localColumns, setLocalColumns] = useState<ColumnMode>(2);
   const [streamMode, setStreamMode] = useState<StreamMode>('auto');
-  const [routeMode, setRouteMode] = useState<RouteMode>('auto');
   const [refreshInterval, setRefreshInterval] = useState<RefreshInterval>(0);
   const [refreshTick, setRefreshTick] = useState(0);
   const [minimalMode, setMinimalMode] = useState(false);
@@ -94,13 +92,6 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    const saved = localStorage.getItem('ewelink_stream_route_mode');
-    if (saved === 'auto' || saved === 'lan' || saved === 'tailscale') {
-      setRouteMode(saved);
-    }
-  }, []);
-
-  useEffect(() => {
     const saved = localStorage.getItem('ewelink_stream_refresh_interval');
     const parsed = saved ? parseInt(saved, 10) : 0;
     if (parsed === 5 || parsed === 10 || parsed === 30 || parsed === 60) {
@@ -108,6 +99,12 @@ export default function HomePage() {
       return;
     }
     setRefreshInterval(0);
+  }, []);
+
+  useEffect(() => {
+    localStorage.removeItem('ewelink_stream_route_mode');
+    localStorage.removeItem('ewelink_camera_route_preferences_v1');
+    localStorage.removeItem('ewelink_stream_route_cache_v1');
   }, []);
 
   useEffect(() => {
@@ -209,6 +206,15 @@ export default function HomePage() {
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setMinimalMode(true)}
+              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2 text-xs font-bold text-slate-100 shadow-[0_16px_40px_rgba(0,0,0,0.18)] backdrop-blur-xl transition hover:border-white/20 hover:bg-white/[0.1]"
+            >
+              <Minimize2 size={14} />
+              進入極簡模式
+            </button>
+
+            <button
+              type="button"
               onClick={() => setSettingsDrawerOpen(true)}
               className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2 text-xs font-bold text-slate-100 shadow-[0_16px_40px_rgba(0,0,0,0.18)] backdrop-blur-xl transition hover:border-white/20 hover:bg-white/[0.1]"
             >
@@ -234,7 +240,7 @@ export default function HomePage() {
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
           <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-200">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            {routeMode === 'auto' ? '自動切換 LAN / Tailscale' : routeMode === 'lan' ? '固定 LAN' : '固定 Tailscale'}
+            固定本地 LAN
           </div>
           <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-slate-400">
             {streamMode === 'auto'
@@ -303,28 +309,6 @@ export default function HomePage() {
 
                 <section className="space-y-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-white">路徑模式</h3>
-                    <p className="mt-1 text-xs text-slate-500">決定串流優先走內網、VPN，或自動選擇。</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {(['auto', 'lan', 'tailscale'] as const).map((mode) => (
-                      <SettingChip
-                        key={mode}
-                        active={routeMode === mode}
-                        onClick={() => {
-                          setRouteMode(mode);
-                          localStorage.setItem('ewelink_stream_route_mode', mode);
-                          window.dispatchEvent(new Event('ewelink-stream-route-mode-changed'));
-                        }}
-                      >
-                        {mode === 'auto' ? '自動路徑' : mode === 'lan' ? '本地 LAN' : 'VPN'}
-                      </SettingChip>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="space-y-3">
-                  <div>
                     <h3 className="text-sm font-semibold text-white">定時重整</h3>
                     <p className="mt-1 text-xs text-slate-500">在頁內靜默重連播放器，不做整頁重新整理。</p>
                   </div>
@@ -368,17 +352,6 @@ export default function HomePage() {
               </div>
 
               <div className="mt-5 flex flex-wrap gap-3 border-t border-white/10 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSettingsDrawerOpen(false);
-                    setMinimalMode(true);
-                  }}
-                  className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10 hover:text-white"
-                >
-                  <Minimize2 size={14} />
-                  進入極簡模式
-                </button>
                 <Link
                   href="/admin"
                   className="flex items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/15"

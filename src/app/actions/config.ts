@@ -11,21 +11,25 @@ function uid() {
 }
 
 function buildHosts() {
-    const hosts: Array<{ id: string, name: string, ip: string, lanIp?: string, tailscaleIp?: string }> = [];
+    const hosts: Array<{ id: string, name: string, ip: string, lanIp?: string }> = [];
+    const seen = new Set<string>();
     const pushHost = (id: string, fallbackName: string, prefix = 'IHOST') => {
         const apiIp = process.env[`${prefix}_IP`];
         const lanIp = process.env[`${prefix}_LAN_IP`];
-        const tailscaleIp = process.env[`${prefix}_TAILSCALE_IP`] ?? apiIp;
         const name = process.env[`${prefix}_NAME`] ?? fallbackName;
 
-        if (!apiIp && !lanIp && !tailscaleIp) return;
+        if (!apiIp && !lanIp) return;
+
+        const resolvedIp = lanIp ?? apiIp ?? '';
+        const dedupeKey = [name, resolvedIp, lanIp ?? ''].join('|');
+        if (seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
 
         hosts.push({
             id,
             name,
-            ip: apiIp ?? tailscaleIp ?? lanIp ?? '',
+            ip: resolvedIp,
             lanIp,
-            tailscaleIp,
         });
     };
 
@@ -35,6 +39,27 @@ function buildHosts() {
     }
 
     return hosts;
+}
+
+function normalizeConfigHosts<T extends {
+    cameras: Array<CameraConfig & { buttons: OverlayButton[] }>;
+    settings?: { columns: number };
+}>(config: T, hostIds: Set<string>) {
+    return {
+        ...config,
+        cameras: config.cameras.map((camera) => ({
+            ...camera,
+            streamHostId: camera.streamHostId && hostIds.has(camera.streamHostId)
+                ? camera.streamHostId
+                : undefined,
+            buttons: camera.buttons.map((button) => ({
+                ...button,
+                hostId: button.hostId && hostIds.has(button.hostId)
+                    ? button.hostId
+                    : undefined,
+            })),
+        })),
+    };
 }
 
 async function fetchMasterConfig() {
@@ -76,9 +101,10 @@ async function mutateMasterConfig(action: string, payload: Record<string, unknow
 // ── 讀取全部設定 ──────────────────────────────────
 export async function getConfigAction() {
     const hosts = buildHosts();
-    const config = CONFIG_MASTER_URL
+    const rawConfig = CONFIG_MASTER_URL
         ? await fetchMasterConfig()
         : readConfig();
+    const config = normalizeConfigHosts(rawConfig, new Set(hosts.map((host) => host.id)));
 
     return {
         cameras: config.cameras,

@@ -5,7 +5,6 @@ export interface IHostConfig {
     name: string;
     ip: string;
     lanIp?: string;
-    tailscaleIp?: string;
     token?: string;
 }
 
