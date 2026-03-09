@@ -13,6 +13,15 @@ type ColumnMode = 'auto' | 1 | 2 | 3 | 4;
 type StreamMode = 'auto' | 'low-latency' | 'stable';
 type RefreshInterval = 0 | 5 | 10 | 30 | 60;
 
+type FullscreenDocument = Document & {
+  webkitExitFullscreen?: () => Promise<void> | void;
+  webkitFullscreenElement?: Element | null;
+};
+
+type FullscreenElement = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
 function getAutoColumnCount(width: number) {
   if (width >= 1536) return 4;
   if (width >= 1280) return 3;
@@ -63,6 +72,33 @@ export default function HomePage() {
       cameras.length || 1
     )
   );
+
+  const enterMinimalMode = async () => {
+    setMinimalMode(true);
+
+    const fullscreenDocument = document as FullscreenDocument;
+    const root = document.documentElement as FullscreenElement;
+    try {
+      if (!fullscreenDocument.fullscreenElement && !fullscreenDocument.webkitFullscreenElement) {
+        if (root.requestFullscreen) await root.requestFullscreen();
+        else await root.webkitRequestFullscreen?.();
+      }
+    } catch {
+      // Ignore fullscreen rejection and still keep minimal mode enabled.
+    }
+  };
+
+  const exitMinimalMode = async () => {
+    setMinimalMode(false);
+
+    const fullscreenDocument = document as FullscreenDocument;
+    try {
+      if (fullscreenDocument.fullscreenElement) await fullscreenDocument.exitFullscreen();
+      else await fullscreenDocument.webkitExitFullscreen?.();
+    } catch {
+      // Ignore fullscreen exit errors.
+    }
+  };
 
   // 初始化時讀取 LocalStorage
   useEffect(() => {
@@ -129,13 +165,29 @@ export default function HomePage() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         if (settingsDrawerOpen) setSettingsDrawerOpen(false);
-        else setMinimalMode(false);
+        else void exitMinimalMode();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [minimalMode, settingsDrawerOpen]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const fullscreenDocument = document as FullscreenDocument;
+      if (!fullscreenDocument.fullscreenElement && !fullscreenDocument.webkitFullscreenElement) {
+        setMinimalMode(false);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange as EventListener);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     const triggerForegroundRefresh = () => {
@@ -178,7 +230,7 @@ export default function HomePage() {
       {minimalMode && (
         <button
           type="button"
-          onClick={() => setMinimalMode(false)}
+          onClick={() => void exitMinimalMode()}
           className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-full border border-white/15 bg-black/55 px-4 py-2 text-xs font-bold text-white backdrop-blur-xl transition hover:bg-black/75"
           aria-label="結束極簡模式"
         >
@@ -206,7 +258,7 @@ export default function HomePage() {
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setMinimalMode(true)}
+              onClick={() => void enterMinimalMode()}
               className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2 text-xs font-bold text-slate-100 shadow-[0_16px_40px_rgba(0,0,0,0.18)] backdrop-blur-xl transition hover:border-white/20 hover:bg-white/[0.1]"
             >
               <Minimize2 size={14} />
