@@ -233,6 +233,7 @@ export default function HomePage() {
           onClick={() => void exitMinimalMode()}
           className="fixed right-4 top-4 z-50 flex items-center gap-2 rounded-full border border-white/15 bg-black/55 px-4 py-2 text-xs font-bold text-white backdrop-blur-xl transition hover:bg-black/75"
           aria-label="結束極簡模式"
+          style={{ top: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}
         >
           <Minimize2 size={14} />
           結束極簡
@@ -240,7 +241,7 @@ export default function HomePage() {
       )}
       {/* Header */}
       {!minimalMode && (
-      <header className="border-b border-white/5 px-6 py-4">
+      <header className="sticky top-0 z-30 border-b border-white/5 bg-slate-950/92 px-6 py-4 backdrop-blur-xl">
         <div className="flex items-start gap-3">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm">

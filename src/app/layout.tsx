@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Geist } from 'next/font/google';
 import './globals.css';
 
@@ -7,6 +7,12 @@ const geist = Geist({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: '監視控制中心',
   description: '即時攝影機監控與 IoT 設備控制',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
